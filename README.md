@@ -11,9 +11,27 @@ flutter pub get
 flutter run --dart-define=GEMINI_API_KEY=your-key
 ```
 
-The current model is `gemini-3.5-flash`. The key is compiled into the app, so the app must be rebuilt with the `--dart-define` after setting or changing it; hot reload alone does not update it. If the app reports that Gemini is not configured, confirm the launch command includes that define. Chinese requests use Simplified Chinese (`zh-CN`); English and Malay use `en` and `ms`.
+The current model is Gemini 3 Flash Preview (`gemini-3-flash-preview`). Google does not list a Gemini 3.5 Flash model; Gemini 3.5 Transcribe is a separate speech-to-text model. The key is compiled into the app, so the app must be rebuilt with the `--dart-define` after setting or changing it; hot reload alone does not update it. If the app reports that Gemini is not configured, confirm the launch command includes that define. Chinese requests use Simplified Chinese (`zh-CN`); English and Malay use `en` and `ms`.
 
-**Key and privacy note:** A key compiled into a mobile app can be extracted. This setup follows Healthmate for personal testing only. Do not distribute a release with a live key; move Gemini requests behind a server endpoint before sharing the app. Translation text is sent to Google. Avoid entering names or other identifying/private student information. Google AI Studio free-tier data handling differs from the paid tier; check Google's current terms for the project before use with students.
+**Key and privacy note:** A key compiled into a mobile app can be extracted. Do not distribute a release with a live key; move Gemini requests behind a server endpoint before sharing the app. Translation text is sent to Google. Avoid entering names or other identifying/private student information. Google AI Studio free-tier data handling differs from the paid tier; check Google's current terms for the project before use with students.
+
+## Release readiness
+
+- Android release builds are unsigned unless `android/key.properties` and the referenced upload keystore are configured. The release build never falls back to the debug signing key.
+- Create an upload key with `keytool -genkeypair -v -keystore android/upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`, then create the ignored `android/key.properties` file:
+
+  ```properties
+  storeFile=upload-keystore.jks
+  storePassword=YOUR_STORE_PASSWORD
+  keyAlias=upload
+  keyPassword=YOUR_KEY_PASSWORD
+  ```
+
+  Keep both files private and backed up. Never commit the keystore or its passwords.
+- Replace the Android and iOS `com.example` application identifiers with identifiers registered to your publishing account before submission.
+- Build iOS on macOS with Xcode and configure Apple signing; this Windows workspace cannot produce or verify an iOS installer.
+- Do not publish a client-embedded Gemini key. A backend proxy, privacy policy, and review of applicable child-data/store policies are required before distributing this app publicly.
+- Use `flutter build apk --release --split-per-abi` to produce smaller device-specific APKs, or `flutter build appbundle --release` for Google Play.
 
 ## Current behavior
 
