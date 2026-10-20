@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 import '../../../core/languages.dart';
 import '../../../data/repositories/learning_repository.dart';
 import '../models/translation.dart';
 import '../services/translator_service.dart';
+import 'live_text_camera_screen.dart';
 
 class TranslatorScreen extends StatefulWidget {
   const TranslatorScreen({
@@ -82,10 +84,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     } catch (error) {
       debugPrint('Translation operation failed: $error');
       if (mounted && requestId == _requestId) {
-        setState(
-          () =>
-              _error = 'The translation could not be saved. Please try again.',
-        );
+        setState(() => _error = 'Translation failed. Please try again.');
       }
     } finally {
       if (mounted && requestId == _requestId) {
@@ -126,6 +125,26 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     });
   }
 
+  Future<void> _readFromCamera() async {
+    final text = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => LiveTextCameraScreen(
+          script: _sourceLanguage.code == 'zh'
+              ? TextRecognitionScript.chinese
+              : TextRecognitionScript.latin,
+        ),
+      ),
+    );
+    if (text == null || !mounted) return;
+    setState(() {
+      _controller.text = text;
+      _controller.selection = TextSelection.collapsed(offset: text.length);
+      _result = null;
+      _error = null;
+      _saved = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -138,7 +157,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          'Look up published dictionary entries. Your history stays on this device.',
+          'Translate words and sentences with Gemini AI. Your history stays on this device.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 20),
@@ -187,7 +206,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => _translate(),
           decoration: InputDecoration(
-            hintText: 'Type one word',
+            hintText: 'Type a word or sentence',
             filled: true,
             suffixIcon: IconButton(
               tooltip: 'Clear text',
@@ -196,6 +215,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             ),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
           ),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: _loading ? null : _readFromCamera,
+          icon: const Icon(Icons.document_scanner_outlined),
+          label: const Text('Read text with camera'),
         ),
         const SizedBox(height: 12),
         FilledButton.icon(
@@ -207,7 +232,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.translate),
-          label: Text(_loading ? 'Looking up…' : 'Translate'),
+          label: Text(_loading ? 'Translating…' : 'Translate'),
         ),
         const SizedBox(height: 16),
         if (_error != null) _MessageCard(message: _error!, isError: true),
@@ -220,7 +245,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           ),
         if (_result == null && _error == null)
           const _MessageCard(
-            message: 'Translations are available offline for words in your imported, reviewed dictionary.',
+            message: 'AI-generated translations may need checking. Do not enter personal or private information.',
           ),
       ],
     );
@@ -276,6 +301,14 @@ class _TranslationCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (translation.isAiGenerated) ...[
+              const Chip(
+                avatar: Icon(Icons.auto_awesome, size: 16),
+                label: Text('AI-generated · Check the meaning'),
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(height: 8),
+            ],
             Text(
               translation.translatedText,
               style: Theme.of(context).textTheme.headlineSmall

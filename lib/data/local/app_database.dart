@@ -10,7 +10,7 @@ class AppDatabase {
 
   final Database database;
 
-  static const schemaVersion = 1;
+  static const schemaVersion = 2;
 
   static Future<AppDatabase> open() async {
     final path = await _databasePath();
@@ -44,18 +44,6 @@ class AppDatabase {
   }
 
   static Future<void> _createSchema(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE dictionary_entries (
-        id TEXT PRIMARY KEY,
-        word TEXT NOT NULL,
-        language TEXT NOT NULL,
-        reviewStatus TEXT NOT NULL,
-        payload TEXT NOT NULL
-      )
-    ''');
-    await db.execute(
-      'CREATE INDEX dictionary_word_language ON dictionary_entries(language, word COLLATE NOCASE)',
-    );
     await db.execute('''
       CREATE TABLE translation_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,6 +79,9 @@ class AppDatabase {
   ) async {
     if (oldVersion < 1) {
       await _createSchema(db, newVersion);
+    }
+    if (oldVersion < 2) {
+      await db.execute('DROP TABLE IF EXISTS dictionary_entries');
     }
   }
 

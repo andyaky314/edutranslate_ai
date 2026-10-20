@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../core/languages.dart';
 import '../../../data/repositories/learning_repository.dart';
-import '../../dictionary/services/dictionary_importer.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
     required this.repository,
-    required this.importer,
     required this.preferredLanguage,
     required this.preferredYearLevel,
     required this.onLanguageChanged,
@@ -16,7 +14,6 @@ class SettingsScreen extends StatelessWidget {
   });
 
   final LearningRepository repository;
-  final DictionaryImporter importer;
   final AppLanguage preferredLanguage;
   final int? preferredYearLevel;
   final ValueChanged<AppLanguage> onLanguageChanged;
@@ -55,78 +52,6 @@ class SettingsScreen extends StatelessWidget {
           ),
         );
       }
-    }
-  }
-
-  Future<void> _showDictionaryImport(BuildContext context) async {
-    final controller = TextEditingController();
-    final importCount = await showDialog<int>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Import dictionary'),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Paste a version 1 JSON export. The full file is validated before any entries are saved.',
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: controller,
-                  minLines: 8,
-                  maxLines: 14,
-                  keyboardType: TextInputType.multiline,
-                  decoration: const InputDecoration(
-                    hintText: '{"schemaVersion": 1, "entries": [...]}',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              try {
-                final count = await importer.importJson(controller.text);
-                if (dialogContext.mounted) Navigator.pop(dialogContext, count);
-              } on DictionaryImportException catch (error) {
-                if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext)
-                      .showSnackBar(SnackBar(content: Text(error.message)));
-                }
-              } catch (error) {
-                debugPrint('Dictionary import failed: $error');
-                if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Import could not be completed. Please try again.',
-                      ),
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text('Validate and import'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (context.mounted && importCount != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Imported $importCount dictionary entries.')),
-      );
     }
   }
 
@@ -187,35 +112,7 @@ class SettingsScreen extends StatelessWidget {
         ),
         const SizedBox(height: 24),
         Text(
-          'Dictionary content',
-          style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Column(
-            children: [
-              const ListTile(
-                leading: Icon(Icons.verified_outlined),
-                title: Text('Reviewed entries only'),
-                subtitle: Text(
-                  'Only entries marked "published" are used by the offline translator.',
-                ),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.file_upload_outlined),
-                title: const Text('Import dictionary JSON'),
-                subtitle: const Text('Version 1 · English, BM and Chinese'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _showDictionaryImport(context),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          'About offline learning',
+          'AI translation',
           style: Theme.of(context).textTheme.titleLarge
               ?.copyWith(fontWeight: FontWeight.bold),
         ),
@@ -224,7 +121,7 @@ class SettingsScreen extends StatelessWidget {
           child: Padding(
             padding: EdgeInsets.all(16),
             child: Text(
-              'Your translation history, saved words, favourites, and review counts are stored on this device. The current translator uses the imported local dictionary; no student text is sent to an AI provider.',
+              'Translations and learning explanations are generated by Gemini through Google AI Studio. Text you submit is sent to Google for processing. Do not enter names, contact details, or private student information. AI translations can be wrong; check important meanings with a teacher. Your saved words, history, favourites, and review counts stay on this device.',
             ),
           ),
         ),

@@ -1,102 +1,52 @@
 # EduTranslate
 
-EduTranslate is an Android-first language-learning companion for Malaysian SJKC
-students in Years 1–6. The first vertical slice is a local-first dictionary
-translator, saved vocabulary, flashcards, translation history, and dictionary
-import for English (`en`), Bahasa Melayu (`ms`), and Chinese (`zh`).
+EduTranslate is an Android-first AI language-learning companion for Malaysian primary school students in Years 1–6. Gemini through Google AI Studio translates English, Bahasa Melayu, and Chinese text, and generates a short definition, child-friendly explanation, and example sentence. Saved vocabulary, flashcards, history, favourites, and review counts remain on-device.
 
-## Current MVP behavior
+## Configure Gemini
 
-- SQLite stores dictionary entries, translation history, vocabulary, review
-  counts, favourites, and the preferred learning language and SJKC year level.
-- The translator looks up one word in the imported dictionary and only uses
-  published entries that match the selected year level, or any year when `All
-  years` is selected. Unsupported lookups are reported; the app does not return
-  demo or invented translations.
-- There is no AI provider configured. `TranslationProvider` is the replaceable
-  boundary for a future AI or other translation adapter. No student text is
-  sent to a remote service.
-- OCR, text-to-speech, speech recognition, account sync, and curriculum
-  authoring are not part of this MVP.
-- SQLite schema version 1 is created on first launch. Future persistent changes
-  must increment the schema version and add an `onUpgrade` migration.
+Create an API key in Google AI Studio and pass it as a compile-time value for local testing:
+
+```sh
+flutter pub get
+flutter run --dart-define=GEMINI_API_KEY=your-key
+```
+
+The current model is `gemini-3.5-flash-lite`. Chinese requests use Simplified Chinese (`zh-CN`); English and Malay use `en` and `ms`.
+
+**Key and privacy note:** A key compiled into a mobile app can be extracted. This setup follows Healthmate for personal testing only. Do not distribute a release with a live key; move Gemini requests behind a server endpoint before sharing the app. Translation text is sent to Google. Avoid entering names or other identifying/private student information. Google AI Studio free-tier data handling differs from the paid tier; check Google's current terms for the project before use with students.
+
+## Current behavior
+
+- Gemini generates translations and learning content at request time. Results are labelled AI-generated and may be incorrect.
+- The selected SJKC year level is sent as guidance for the explanation. It is not a claim that a word belongs to an official curriculum level.
+- Translation requests require an internet connection and a configured API key.
+- SQLite stores translation history, saved vocabulary, flashcards/review data, and preferences locally.
+- The former local dictionary and JSON import flow have been removed. Existing dictionary rows are dropped by the database v1-to-v2 migration; other learning data is preserved.
+- Live camera OCR recognizes English/Malay (Latin script) or Chinese (when Chinese is selected as the source language) on-device. Tap a detected word or line to place it in the translator, review it, then translate. Camera frames are processed on-device and are not saved; only text you submit for translation is sent to Google. Still image capture, speech recognition, and cloud sync are not included.
 
 ## Run and validate
 
 ```sh
 flutter pub get
-flutter run
+flutter run --dart-define=GEMINI_API_KEY=your-key
 flutter test
 flutter analyze
 ```
 
-The app uses `sqflite` on Android/iOS and `sqflite_common_ffi` on Windows, macOS,
-and Linux. Web storage is not configured. The Android minimum SDK remains
-Flutter's configured default in `android/app/build.gradle.kts`.
-
-## Dictionary JSON contract
-
-The importer accepts a JSON object with `schemaVersion: 1` and a non-empty
-`entries` array. It validates every entry before opening a database transaction;
-an invalid entry prevents the whole import. Re-importing an ID replaces that
-entry, so IDs must be stable across dictionary releases.
-
-Each entry has this shape:
-
-```json
-{
-  "id": "en:gentle:001",
-  "word": "gentle",
-  "language": "en",
-  "pronunciation": "jen-təl",
-  "partOfSpeech": "adjective",
-  "definition": "Kind and careful in the way you treat people or animals.",
-  "studentExplanation": "A gentle person is kind and does not hurt others.",
-  "examples": [
-    {"language": "en", "text": "She used a gentle voice."},
-    {"language": "ms", "text": "Dia bercakap dengan suara yang lembut."},
-    {"language": "zh", "text": "她用温柔的声音说话。"}
-  ],
-  "synonyms": ["kind"],
-  "antonyms": ["rough"],
-  "translations": {"ms": "lembut", "zh": "温柔"},
-  "yearLevels": [3, 4],
-  "category": "character",
-  "source": "Original contributor or reference citation",
-  "reviewer": "Reviewer name or organisation",
-  "reviewStatus": "published"
-}
-```
-
-The language values are ISO-style codes `en`, `ms`, and `zh`. `yearLevels` must
-contain one or more integers from 1 to 6. `reviewStatus` is `draft`,
-`in_review`, or `published`; published entries require a non-empty reviewer and
-only published entries can be looked up. Keep source and reviewer details
-accurate, and do not copy protected definitions or examples based only on a
-reference site's name.
-
-Open **Settings → Import dictionary JSON** in the app and paste the complete
-versioned export. The import UI and importer are intended for educator-curated
-content; the repository does not bundle dictionary material.
+The app uses `sqflite` on Android/iOS and `sqflite_common_ffi` on Windows, macOS, and Linux. Web storage is not configured.
 
 ## Architecture
 
 ```text
 lib/
   app/                         application bootstrap and navigation
+  config/                      Gemini model and API-key configuration
   core/                        shared language identifiers
   data/local/                  SQLite database and schema
-  data/repositories/            learning repository contract and SQLite adapter
-  features/dictionary/          versioned import and validation
-  features/translator/          translation models, provider boundary, UI
-  features/vocabulary/          saved words
-  features/flashcards/          review flow
-  features/history/             local translation history
-  features/settings/            preferences and dictionary import UI
+  data/repositories/           learning repository and SQLite adapter
+  features/translator/         Gemini provider, live camera OCR, result model, UI
+  features/vocabulary/         saved words
+  features/flashcards/         review flow
+  features/history/            local translation history
+  features/settings/           language, year, and AI privacy preferences
 ```
-
-The local repository is the source of truth for saved learning material.
-`TranslationProvider` keeps translation implementations replaceable. Before
-adding an online provider, make a separate product decision for provider
-selection, child privacy and consent, credentials, usage limits, and offline
-fallback behavior.

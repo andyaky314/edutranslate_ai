@@ -1,102 +1,82 @@
 import 'package:edutranslate_ai/data/repositories/learning_repository.dart';
-import 'package:edutranslate_ai/features/translator/models/dictionary_entry.dart';
 import 'package:edutranslate_ai/features/translator/models/translation.dart';
 import 'package:edutranslate_ai/features/translator/services/translator_service.dart';
 import 'package:edutranslate_ai/features/vocabulary/models/vocabulary_item.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test(
-    'offline lookup returns a translation and stores it in history',
-    () async {
-      final repository = _MemoryRepository(_entry);
-      final service = TranslatorService(
-        provider: OfflineDictionaryProvider(repository),
-        repository: repository,
-      );
+  test('provider result is saved to translation history', () async {
+    final repository = _MemoryRepository();
+    final result = _translation;
+    final service = TranslatorService(
+      provider: _FakeProvider(result),
+      repository: repository,
+    );
 
-      final result = await service.translate(
-        text: ' gentle ',
-        from: 'English',
-        to: 'Bahasa Melayu',
-      );
+    final translated = await service.translate(
+      text: '  hello  ',
+      from: 'English',
+      to: 'Bahasa Melayu',
+      yearLevel: 2,
+    );
 
-      expect(result.originalText, 'gentle');
-      expect(result.translatedText, 'lembut');
-      expect(result.studentExplanation, 'Kind and careful with others.');
-      expect(result.exampleSentence, 'Use a gentle voice.');
-      expect(repository.history, [result]);
-    },
-  );
+    expect(translated.originalText, 'hello');
+    expect(translated.translatedText, 'hai');
+    expect(repository.history, [result]);
+  });
 
-  test(
-    'missing published entries fail without creating a history record',
-    () async {
-      final repository = _MemoryRepository(null);
-      final service = TranslatorService(
-        provider: OfflineDictionaryProvider(repository),
-        repository: repository,
-      );
+  test('empty input is rejected before calling the provider', () async {
+    final repository = _MemoryRepository();
+    final provider = _FakeProvider(_translation);
+    final service = TranslatorService(
+      provider: provider,
+      repository: repository,
+    );
 
-      await expectLater(
-        service.translate(
-          text: 'unknown',
-          from: 'English',
-          to: 'Bahasa Melayu',
-        ),
-        throwsA(isA<TranslationUnavailableException>()),
-      );
-      expect(repository.history, isEmpty);
-    },
-  );
+    await expectLater(
+      service.translate(text: '  ', from: 'English', to: 'Bahasa Melayu'),
+      throwsA(isA<TranslationUnavailableException>()),
+    );
+    expect(provider.calls, 0);
+    expect(repository.history, isEmpty);
+  });
 }
 
-const _entry = DictionaryEntry(
-  id: 'en:gentle:001',
-  word: 'gentle',
-  language: 'en',
-  pronunciation: 'jen-təl',
-  partOfSpeech: 'adjective',
-  definition: 'Kind and careful.',
-  studentExplanation: 'Kind and careful with others.',
-  examples: [DictionaryExample(language: 'en', text: 'Use a gentle voice.')],
-  synonyms: ['kind'],
-  antonyms: [],
-  translations: {'ms': 'lembut', 'zh': '温柔'},
-  yearLevels: [3],
-  category: 'character',
-  source: 'Original contributor',
-  reviewer: 'Teacher',
-  reviewStatus: 'published',
+const _translation = Translation(
+  originalText: 'hello',
+  translatedText: 'hai',
+  sourceLanguage: 'en',
+  targetLanguage: 'ms',
+  studentExplanation: 'A friendly greeting.',
+  definition: 'A greeting used when meeting someone.',
+  exampleSentence: 'Hai, apa khabar?',
+  isAiGenerated: true,
 );
 
-class _MemoryRepository implements LearningRepository {
-  _MemoryRepository(this.entry);
+class _FakeProvider implements TranslationProvider {
+  _FakeProvider(this.result);
 
-  final DictionaryEntry? entry;
+  final Translation result;
+  int calls = 0;
+
+  @override
+  Future<Translation> translate({
+    required String text,
+    required String from,
+    required String to,
+    int? yearLevel,
+  }) async {
+    calls++;
+    return result;
+  }
+}
+
+class _MemoryRepository implements LearningRepository {
   final history = <Translation>[];
 
   @override
-  Future<DictionaryEntry?> findPublishedEntry(
-    String word,
-    String language, {
-    int? yearLevel,
-  }) async {
-    if (entry?.reviewStatus == 'published' &&
-        entry?.word.toLowerCase() == word.trim().toLowerCase() &&
-        entry?.language == language) {
-      return entry;
-    }
-    return null;
-  }
-
-  @override
-  Future<void> saveTranslation(Translation translation) async {
-    history.add(translation);
-  }
-
-  @override
-  Future<void> importDictionaryEntries(List<DictionaryEntry> entries) async {}
+  Future<void> saveTranslation(Translation translation) async =>
+      history.add(translation);
 
   @override
   Future<List<Translation>> getTranslationHistory() async => history;

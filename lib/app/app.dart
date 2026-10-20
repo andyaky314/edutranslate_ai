@@ -4,7 +4,6 @@ import '../core/languages.dart';
 import '../data/local/app_database.dart';
 import '../data/repositories/learning_repository.dart';
 import '../data/repositories/sqlite_learning_repository.dart';
-import '../features/dictionary/services/dictionary_importer.dart';
 import '../features/flashcards/screens/flashcards_screen.dart';
 import '../features/history/screens/history_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
@@ -72,7 +71,7 @@ class _EduTranslateAppState extends State<EduTranslateApp> {
           }
           final repository = snapshot.data!;
           final service = TranslatorService(
-            provider: OfflineDictionaryProvider(repository),
+            provider: GeminiTranslationProvider(),
             repository: repository,
           );
           return LearningShell(
@@ -190,7 +189,6 @@ class _LearningShellState extends State<LearningShell> {
   @override
   Widget build(BuildContext context) {
     final preferredLanguage = AppLanguage.fromCode(_preferredLanguageCode);
-    final importer = DictionaryImporter(widget.repository);
     final pages = [
       TranslatorScreen(
         service: widget.translatorService,
@@ -206,7 +204,6 @@ class _LearningShellState extends State<LearningShell> {
       HistoryScreen(repository: widget.repository),
       SettingsScreen(
         repository: widget.repository,
-        importer: importer,
         preferredLanguage: preferredLanguage,
         preferredYearLevel: _preferredYearLevel,
         onLanguageChanged: _setPreferredLanguage,

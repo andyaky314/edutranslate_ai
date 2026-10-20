@@ -10,6 +10,7 @@ class Translation {
     this.partOfSpeech,
     this.definition,
     this.exampleSentence,
+    this.isAiGenerated = false,
   });
 
   final String originalText;
@@ -22,30 +23,33 @@ class Translation {
   final String? partOfSpeech;
   final String? definition;
   final String? exampleSentence;
+  final bool isAiGenerated;
 
   Map<String, Object?> toJson() => {
-        'originalText': originalText,
-        'translatedText': translatedText,
-        'sourceLanguage': sourceLanguage,
-        'targetLanguage': targetLanguage,
-        'studentExplanation': studentExplanation,
-        'dictionaryEntryId': dictionaryEntryId,
-        'pronunciation': pronunciation,
-        'partOfSpeech': partOfSpeech,
-        'definition': definition,
-        'exampleSentence': exampleSentence,
-      };
+    'originalText': originalText,
+    'translatedText': translatedText,
+    'sourceLanguage': sourceLanguage,
+    'targetLanguage': targetLanguage,
+    'studentExplanation': studentExplanation,
+    'dictionaryEntryId': dictionaryEntryId,
+    'pronunciation': pronunciation,
+    'partOfSpeech': partOfSpeech,
+    'definition': definition,
+    'exampleSentence': exampleSentence,
+    'isAiGenerated': isAiGenerated,
+  };
 
   factory Translation.fromJson(Map<String, dynamic> json) => Translation(
-        originalText: json['originalText'] as String,
-        translatedText: json['translatedText'] as String,
-        sourceLanguage: json['sourceLanguage'] as String,
-        targetLanguage: json['targetLanguage'] as String,
-        studentExplanation: json['studentExplanation'] as String,
-        dictionaryEntryId: json['dictionaryEntryId'] as String?,
-        pronunciation: json['pronunciation'] as String?,
-        partOfSpeech: json['partOfSpeech'] as String?,
-        definition: json['definition'] as String?,
-        exampleSentence: json['exampleSentence'] as String?,
-      );
+    originalText: json['originalText'] as String,
+    translatedText: json['translatedText'] as String,
+    sourceLanguage: json['sourceLanguage'] as String,
+    targetLanguage: json['targetLanguage'] as String,
+    studentExplanation: json['studentExplanation'] as String,
+    dictionaryEntryId: json['dictionaryEntryId'] as String?,
+    pronunciation: json['pronunciation'] as String?,
+    partOfSpeech: json['partOfSpeech'] as String?,
+    definition: json['definition'] as String?,
+    exampleSentence: json['exampleSentence'] as String?,
+    isAiGenerated: json['isAiGenerated'] as bool? ?? false,
+  );
 }
