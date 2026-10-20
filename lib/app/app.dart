@@ -1,179 +1,253 @@
 import 'package:flutter/material.dart';
-import '../features/translator/screens/translator_screen.dart';
 
-class EduTranslateApp extends StatelessWidget {
+import '../core/languages.dart';
+import '../data/local/app_database.dart';
+import '../data/repositories/learning_repository.dart';
+import '../data/repositories/sqlite_learning_repository.dart';
+import '../features/dictionary/services/dictionary_importer.dart';
+import '../features/flashcards/screens/flashcards_screen.dart';
+import '../features/history/screens/history_screen.dart';
+import '../features/settings/screens/settings_screen.dart';
+import '../features/translator/screens/translator_screen.dart';
+import '../features/translator/services/translator_service.dart';
+import '../features/vocabulary/screens/vocabulary_screen.dart';
+
+class EduTranslateApp extends StatefulWidget {
   const EduTranslateApp({super.key});
+
+  @override
+  State<EduTranslateApp> createState() => _EduTranslateAppState();
+}
+
+class _EduTranslateAppState extends State<EduTranslateApp> {
+  late final Future<LearningRepository> _repository = _openRepository();
+
+  Future<LearningRepository> _openRepository() async {
+    try {
+      final appDatabase = await AppDatabase.open();
+      return SqliteLearningRepository(appDatabase.database);
+    } catch (error, stackTrace) {
+      debugPrint('Could not initialize EduTranslate storage: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'EduTranslate AI',
+      title: 'EduTranslate',
       debugShowCheckedModeBanner: false,
-
       theme: ThemeData(
         useMaterial3: true,
-        colorSchemeSeed: Colors.blue,
-        scaffoldBackgroundColor: const Color(0xffF5F7FB),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xff4267c8),
+          surface: const Color(0xfff7f8fc),
+        ),
+        scaffoldBackgroundColor: const Color(0xfff7f8fc),
         appBarTheme: const AppBarTheme(
-          centerTitle: true,
+          centerTitle: false,
+          backgroundColor: Color(0xfff7f8fc),
+          foregroundColor: Color(0xff202746),
+        ),
+        cardTheme: CardThemeData(
           elevation: 0,
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xffe4e8f2)),
+          ),
         ),
       ),
-
-      home: const TranslatorScreen(),
+      home: FutureBuilder<LearningRepository>(
+        future: _repository,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const _StartupError();
+          }
+          if (!snapshot.hasData) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          final repository = snapshot.data!;
+          final service = TranslatorService(
+            provider: OfflineDictionaryProvider(repository),
+            repository: repository,
+          );
+          return LearningShell(
+            repository: repository,
+            translatorService: service,
+          );
+        },
+      ),
     );
   }
 }
 
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+class _StartupError extends StatelessWidget {
+  const _StartupError();
 
-  Widget _feature(
-      IconData icon,
-      String title,
-      String subtitle,
-      Color color,
-      ) {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha: 0.15),
-          child: Icon(icon, color: color),
-        ),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.storage_rounded, size: 44),
+              const SizedBox(height: 16),
+              const Text(
+                'EduTranslate could not open its local learning database.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Restart the app. If the problem continues, ask an adult for help.',
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
         ),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: () {},
       ),
     );
+  }
+}
+
+class LearningShell extends StatefulWidget {
+  const LearningShell({
+    required this.repository,
+    required this.translatorService,
+    super.key,
+  });
+
+  final LearningRepository repository;
+  final TranslatorService translatorService;
+
+  @override
+  State<LearningShell> createState() => _LearningShellState();
+}
+
+class _LearningShellState extends State<LearningShell> {
+  static const _titles = [
+    'Translate',
+    'My words',
+    'Flashcards',
+    'History',
+    'Settings',
+  ];
+
+  int _selectedIndex = 0;
+  String _preferredLanguageCode = 'en';
+  int? _preferredYearLevel;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferredLanguage();
+  }
+
+  Future<void> _loadPreferredLanguage() async {
+    try {
+      final saved = await widget.repository.getSetting('preferredLanguage');
+      if (saved != null) {
+        AppLanguage.fromCode(saved);
+        if (mounted) setState(() => _preferredLanguageCode = saved);
+      }
+      final savedYear = await widget.repository.getSetting(
+        'preferredYearLevel',
+      );
+      final parsedYear = savedYear == null || savedYear == 'all'
+          ? null
+          : int.tryParse(savedYear);
+      if (savedYear != null &&
+          (parsedYear == null || parsedYear < 1 || parsedYear > 6)) {
+        throw FormatException('Unsupported preferred year level: $savedYear');
+      }
+      if (mounted) setState(() => _preferredYearLevel = parsedYear);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not load learning preferences: $error'),
+          ),
+        );
+      }
+    }
+  }
+
+  void _setPreferredLanguage(AppLanguage language) {
+    setState(() => _preferredLanguageCode = language.code);
+  }
+
+  void _setPreferredYearLevel(int? yearLevel) {
+    setState(() => _preferredYearLevel = yearLevel);
   }
 
   @override
   Widget build(BuildContext context) {
+    final preferredLanguage = AppLanguage.fromCode(_preferredLanguageCode);
+    final importer = DictionaryImporter(widget.repository);
+    final pages = [
+      TranslatorScreen(
+        service: widget.translatorService,
+        repository: widget.repository,
+        preferredLanguage: preferredLanguage,
+        preferredYearLevel: _preferredYearLevel,
+        key: ValueKey(
+          'translate-${preferredLanguage.code}-${_preferredYearLevel ?? 'all'}',
+        ),
+      ),
+      VocabularyScreen(repository: widget.repository),
+      FlashcardsScreen(repository: widget.repository),
+      HistoryScreen(repository: widget.repository),
+      SettingsScreen(
+        repository: widget.repository,
+        importer: importer,
+        preferredLanguage: preferredLanguage,
+        preferredYearLevel: _preferredYearLevel,
+        onLanguageChanged: _setPreferredLanguage,
+        onYearLevelChanged: _setPreferredYearLevel,
+      ),
+    ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("EduTranslate AI"),
+        title: Text(
+          _titles[_selectedIndex],
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
       ),
-
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-
-        children: [
-
-          const SizedBox(height: 10),
-
-          const Text(
-            "AI Language Companion",
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-            ),
+      body: SafeArea(child: pages[_selectedIndex]),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) {
+          setState(() => _selectedIndex = index);
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.translate_outlined),
+            selectedIcon: Icon(Icons.translate),
+            label: 'Translate',
           ),
-
-          const SizedBox(height: 6),
-
-          const Text(
-            "Helping Malaysian SJKC students master English, Bahasa Melayu and Chinese.",
-            style: TextStyle(
-              fontSize: 15,
-              color: Colors.grey,
-            ),
+          NavigationDestination(
+            icon: Icon(Icons.book_outlined),
+            selectedIcon: Icon(Icons.book),
+            label: 'Words',
           ),
-
-          const SizedBox(height: 25),
-
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xff2196F3),
-                  Color(0xff00BCD4),
-                ],
-              ),
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-
-                Text(
-                  "Welcome 👋",
-                  style: TextStyle(
-                    color: Colors.white70,
-                  ),
-                ),
-
-                SizedBox(height: 8),
-
-                Text(
-                  "Start learning smarter with AI.",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-
-                SizedBox(height: 10),
-
-                Text(
-                  "Translate • Learn • Practise",
-                  style: TextStyle(
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
+          NavigationDestination(
+            icon: Icon(Icons.style_outlined),
+            selectedIcon: Icon(Icons.style),
+            label: 'Cards',
           ),
-
-          const SizedBox(height: 25),
-
-          _feature(
-            Icons.translate,
-            "AI Translator",
-            "Translate between English, BM and Chinese",
-            Colors.blue,
-          ),
-
-          _feature(
-            Icons.menu_book,
-            "Vocabulary Builder",
-            "Save and review vocabulary",
-            Colors.green,
-          ),
-
-          _feature(
-            Icons.school,
-            "Grammar Coach",
-            "Learn grammar with AI",
-            Colors.orange,
-          ),
-
-          _feature(
-            Icons.camera_alt,
-            "Homework Assistant",
-            "Scan homework and learn",
-            Colors.purple,
-          ),
-
-          _feature(
-            Icons.record_voice_over,
-            "Pronunciation Coach",
-            "Improve speaking confidence",
-            Colors.red,
+          NavigationDestination(icon: Icon(Icons.history), label: 'History'),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: 'Settings',
           ),
         ],
       ),
