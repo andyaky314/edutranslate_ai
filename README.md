@@ -11,7 +11,7 @@ flutter pub get
 flutter run --dart-define=GEMINI_API_KEY=your-key
 ```
 
-The current model is `gemini-3.5-flash-lite`. Chinese requests use Simplified Chinese (`zh-CN`); English and Malay use `en` and `ms`.
+The current model is `gemini-3.5-flash`. The key is compiled into the app, so the app must be rebuilt with the `--dart-define` after setting or changing it; hot reload alone does not update it. If the app reports that Gemini is not configured, confirm the launch command includes that define. Chinese requests use Simplified Chinese (`zh-CN`); English and Malay use `en` and `ms`.
 
 **Key and privacy note:** A key compiled into a mobile app can be extracted. This setup follows Healthmate for personal testing only. Do not distribute a release with a live key; move Gemini requests behind a server endpoint before sharing the app. Translation text is sent to Google. Avoid entering names or other identifying/private student information. Google AI Studio free-tier data handling differs from the paid tier; check Google's current terms for the project before use with students.
 

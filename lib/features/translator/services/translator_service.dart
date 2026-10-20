@@ -27,10 +27,17 @@ abstract interface class TranslationProvider {
 }
 
 class GeminiTranslationProvider implements TranslationProvider {
-  GeminiTranslationProvider({http.Client? client})
-    : _client = client ?? http.Client();
+  GeminiTranslationProvider({
+    http.Client? client,
+    String? apiKey,
+    String? model,
+  }) : _client = client ?? http.Client(),
+       _apiKey = apiKey ?? GeminiConfig.apiKey,
+       _model = model ?? GeminiConfig.model;
 
   final http.Client _client;
+  final String _apiKey;
+  final String _model;
 
   @override
   Future<Translation> translate({
@@ -46,9 +53,10 @@ class GeminiTranslationProvider implements TranslationProvider {
         'Choose two different languages to translate.',
       );
     }
-    if (GeminiConfig.apiKey.isEmpty) {
+    final apiKey = _apiKey.trim();
+    if (apiKey.isEmpty) {
       throw const TranslationUnavailableException(
-        'Gemini is not configured for this build. Add GEMINI_API_KEY and rebuild the app.',
+        'Gemini is not configured for this build. Launch the app with --dart-define=GEMINI_API_KEY=your-key, then rebuild it.',
       );
     }
 
@@ -74,15 +82,17 @@ Input: $text
 
     final uri = Uri.https(
       'generativelanguage.googleapis.com',
-      '/v1beta/models/${GeminiConfig.model}:generateContent',
-      {'key': GeminiConfig.apiKey},
+      '/v1beta/models/$_model:generateContent',
     );
     final http.Response response;
     try {
       response = await _client
           .post(
             uri,
-            headers: const {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey,
+            },
             body: jsonEncode({
               'contents': [
                 {
@@ -117,7 +127,17 @@ Input: $text
       }
       if (response.statusCode == 400 || response.statusCode == 403) {
         throw const TranslationUnavailableException(
-          'Gemini rejected the request. Check the API key and AI Studio project settings.',
+          'Gemini rejected the request. Check the API key, model access, and AI Studio project settings.',
+        );
+      }
+      if (response.statusCode == 401) {
+        throw const TranslationUnavailableException(
+          'Gemini authentication failed. Check that the API key is valid and the Gemini API is enabled for its Google Cloud project.',
+        );
+      }
+      if (response.statusCode == 404) {
+        throw TranslationUnavailableException(
+          'Gemini model "$_model" was not found. Check the configured model name.',
         );
       }
       throw TranslationUnavailableException(

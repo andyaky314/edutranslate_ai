@@ -172,7 +172,9 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
           : (sensorOrientation - compensation + 360) % 360;
       rotation = InputImageRotationValue.fromRawValue(compensation);
     }
-    final format = InputImageFormatValue.fromRawValue(image.format.raw);
+    final format = Platform.isAndroid
+        ? InputImageFormat.nv21
+        : InputImageFormatValue.fromRawValue(image.format.raw);
     if (rotation == null ||
         format == null ||
         (Platform.isAndroid && format != InputImageFormat.nv21) ||
