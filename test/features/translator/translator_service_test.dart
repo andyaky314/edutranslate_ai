@@ -49,7 +49,7 @@ void main() {
     final client = MockClient((request) async {
       expect(
         request.url.path,
-        '/v1beta/models/gemini-3-flash-preview:generateContent',
+        '/v1beta/models/gemini-3.8-flash:generateContent',
       );
       expect(request.url.queryParameters, isEmpty);
       expect(request.headers['x-goog-api-key'], 'test-key');

@@ -1,4 +1,4 @@
 class GeminiConfig {
   static const apiKey = String.fromEnvironment('GEMINI_API_KEY');
-  static const model = 'gemini-3-flash-preview';
+  static const model = 'gemini-3.8-flash';
 }
