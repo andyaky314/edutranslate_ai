@@ -15,10 +15,10 @@ class LiveTextCameraScreen extends StatefulWidget {
 class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     with WidgetsBindingObserver {
   static final _wordPattern = RegExp(
-    r"^[\p{L}\p{M}]+(?:['’\-][\p{L}\p{M}]+)*$",
+    r"^[\p{L}\p{M}]+(?:['\u2019\-][\p{L}\p{M}]+)*$",
     unicode: true,
   );
-  static final _wordSeparators = RegExp(r"['’\-]");
+  static final _wordSeparators = RegExp(r"['\u2019\-]");
   static final _singleCjkCharacter = RegExp(r'[\u3400-\u9fff]');
 
   final ImagePicker _imagePicker = ImagePicker();
@@ -150,6 +150,9 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
         for (final line in block.lines) {
           final text = line.text.trim();
           if (text.isEmpty) continue;
+          // Retain whole OCR lines as selectable suggestions; strict word
+          // filtering can otherwise discard useful text, especially Chinese.
+          candidates.putIfAbsent(text.toLowerCase(), () => text);
           final duplicate = lines.any(
             (existing) =>
                 existing.text.toLowerCase() == text.toLowerCase() &&
@@ -319,6 +322,7 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
             child: _DetectedTextPanel(
               candidates: _candidates,
               captured: isCaptured,
+              canUseAll: _recognizedText.isNotEmpty,
               busy: _processing,
               canCapture: controller?.value.isInitialized == true,
               canChooseImage: !_initializing,
@@ -340,6 +344,7 @@ class _DetectedTextPanel extends StatelessWidget {
     required this.candidates,
     required this.onSelect,
     required this.captured,
+    required this.canUseAll,
     required this.busy,
     required this.canCapture,
     required this.canChooseImage,
@@ -352,6 +357,7 @@ class _DetectedTextPanel extends StatelessWidget {
   final List<String> candidates;
   final ValueChanged<String> onSelect;
   final bool captured;
+  final bool canUseAll;
   final bool busy;
   final bool canCapture;
   final bool canChooseImage;
@@ -406,7 +412,7 @@ class _DetectedTextPanel extends StatelessWidget {
                       label: const Text('Retake'),
                     ),
                   ),
-                  if (candidates.isNotEmpty) ...[
+                  if (canUseAll) ...[
                     const SizedBox(width: 8),
                     Expanded(
                       child: FilledButton.tonalIcon(
@@ -427,7 +433,7 @@ class _DetectedTextPanel extends StatelessWidget {
                 child: Center(
                   child: Text(
                     captured
-                        ? 'No clear words found. Try a sharper image.'
+                        ? 'No text found. Try a closer, sharper image with good lighting.'
                         : 'Capture text or choose an image to find words.',
                     textAlign: TextAlign.center,
                   ),

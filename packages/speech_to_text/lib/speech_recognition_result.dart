@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:json_annotation/json_annotation.dart';
 
 part 'speech_recognition_result.g.dart';
@@ -11,7 +13,7 @@ part 'speech_recognition_result.g.dart';
 /// result is considered final by the platform.
 @JsonSerializable(explicitToJson: true)
 class SpeechRecognitionResult {
-  List<SpeechRecognitionWords> alternates;
+  final List<SpeechRecognitionWords> _alternates;
 
   /// Returns a list of possible transcriptions of the speech.
   ///
@@ -21,9 +23,8 @@ class SpeechRecognitionResult {
   /// do a good job with confidence, there are convenience methods
   /// on [SpeechRecognitionWords] to work with possibly missing
   /// confidence values.
-  // TODO: Fix up the interface.
-  // List<SpeechRecognitionWords> get alternates =>
-  //    UnmodifiableListView(alternates);
+  List<SpeechRecognitionWords> get alternates =>
+      UnmodifiableListView(_alternates);
 
   /// The sequence of words that is the best transcription of
   /// what was said.
@@ -66,10 +67,16 @@ class SpeechRecognitionResult {
   bool get hasConfidenceRating =>
       alternates.isNotEmpty ? alternates.first.hasConfidenceRating : false;
 
-  SpeechRecognitionResult(this.alternates, this.resultType);
+  SpeechRecognitionResult(
+    List<SpeechRecognitionWords> alternates,
+    this.resultType,
+  ) : _alternates = List.unmodifiable(alternates);
 
-  SpeechRecognitionResult.init(this.alternates, ResultType resultType)
-      : resultType = resultType.value;
+  SpeechRecognitionResult.init(
+    List<SpeechRecognitionWords> alternates,
+    ResultType resultType,
+  ) : _alternates = List.unmodifiable(alternates),
+      resultType = resultType.value;
 
   @override
   String toString() {
