@@ -4,6 +4,10 @@
 <dict>
 	<key>NSCameraUsageDescription</key>
 	<string>EduTranslate uses the camera to recognize text for translation. Camera frames are processed on this device and are not saved.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>EduTranslate uses the microphone when you choose voice input.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>EduTranslate converts your spoken words into text for translation.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

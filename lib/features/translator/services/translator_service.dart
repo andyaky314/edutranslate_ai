@@ -27,17 +27,23 @@ abstract interface class TranslationProvider {
 }
 
 class GeminiTranslationProvider implements TranslationProvider {
+  static const modelTimeout = Duration(milliseconds: 2500);
+
   GeminiTranslationProvider({
     http.Client? client,
     String? apiKey,
     String? model,
+    List<String>? models,
+    Duration? timeout,
   }) : _client = client ?? http.Client(),
        _apiKey = apiKey ?? GeminiConfig.apiKey,
-       _model = model ?? GeminiConfig.model;
+       _models = models ?? (model == null ? GeminiConfig.models : [model]),
+       _timeout = timeout ?? modelTimeout;
 
   final http.Client _client;
   final String _apiKey;
-  final String _model;
+  final List<String> _models;
+  final Duration _timeout;
 
   @override
   Future<Translation> translate({
@@ -46,9 +52,9 @@ class GeminiTranslationProvider implements TranslationProvider {
     required String to,
     int? yearLevel,
   }) async {
-    final source = AppLanguage.fromName(from);
+    final source = from == 'Auto detect' ? null : AppLanguage.fromName(from);
     final target = AppLanguage.fromName(to);
-    if (source == target) {
+    if (source != null && source == target) {
       throw const TranslationUnavailableException(
         'Choose two different languages to translate.',
       );
@@ -60,12 +66,12 @@ class GeminiTranslationProvider implements TranslationProvider {
       );
     }
 
-    final sourceApiCode = _apiLanguageCode(source.code);
     final targetApiCode = _apiLanguageCode(target.code);
     final prompt =
         '''
 You are EduTranslate, an AI language tutor for Malaysian primary school students.
-Translate the complete input from ${source.name} ($sourceApiCode) to ${target.name} ($targetApiCode).
+Translate the complete input ${source == null ? 'from the language detected in the input' : 'from ${source.name} (${_apiLanguageCode(source.code)})'} to ${target.name} ($targetApiCode).
+The detected input language must be one of English (en), Bahasa Melayu (ms), or Chinese (zh). Return that code in detectedSourceLanguage.
 If the input is a sentence or phrase, translate its full meaning naturally. If it is one word, give its most common meaning in this context.
 Use ${(target.code == 'zh') ? 'Simplified Chinese characters' : target.name} for all target-language text.
 ${yearLevel == null ? 'Use simple language suitable for primary school students.' : 'Explain it at a Year $yearLevel primary school level.'}
@@ -75,115 +81,108 @@ For pronunciation, return a brief pronunciation guide for the source text when u
 Do not claim a dictionary or official source. Do not invent etymology. Keep the explanation accurate and concise.
 
 Return a JSON object with exactly these string fields:
-{"translation":"...","partOfSpeech":"...","definition":"...","studentExplanation":"...","exampleSentence":"...","pronunciation":"..."}
+{"translation":"...","partOfSpeech":"...","definition":"...","studentExplanation":"...","exampleSentence":"...","pronunciation":"...","detectedSourceLanguage":"en|ms|zh"}
 
 Input: $text
 ''';
 
-    final uri = Uri.https(
-      'generativelanguage.googleapis.com',
-      '/v1beta/models/$_model:generateContent',
-    );
-    final http.Response response;
-    try {
-      response = await _client
-          .post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'x-goog-api-key': apiKey,
-            },
-            body: jsonEncode({
-              'contents': [
-                {
-                  'parts': [
-                    {'text': prompt},
-                  ],
-                },
-              ],
-              'generationConfig': {
-                'responseMimeType': 'application/json',
-                'temperature': 0.2,
-                'maxOutputTokens': 512,
+    String? lastIssue;
+    for (var index = 0; index < _models.length; index++) {
+      final model = _models[index];
+      final uri = Uri.https(
+        'generativelanguage.googleapis.com',
+        '/v1beta/models/$model:generateContent',
+      );
+      try {
+        final response = await _client
+            .post(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': apiKey,
               },
-            }),
-          )
-          .timeout(const Duration(seconds: 30));
-    } on TimeoutException {
-      throw const TranslationUnavailableException(
-        'Gemini took too long to respond. Check your connection and try again.',
-      );
-    } on http.ClientException {
-      throw const TranslationUnavailableException(
-        'Could not connect to Gemini. Check your internet connection and try again.',
-      );
-    }
+              body: jsonEncode({
+                'contents': [
+                  {
+                    'parts': [
+                      {'text': prompt},
+                    ],
+                  },
+                ],
+                'generationConfig': {
+                  'responseMimeType': 'application/json',
+                  'maxOutputTokens': 512,
+                },
+              }),
+            )
+            .timeout(_timeout);
 
-    if (response.statusCode != 200) {
-      if (response.statusCode == 429) {
-        throw const TranslationUnavailableException(
-          'Gemini is busy or the request limit was reached. Please try again later.',
-        );
-      }
-      if (response.statusCode == 400 || response.statusCode == 403) {
-        throw const TranslationUnavailableException(
-          'Gemini rejected the request. Check the API key, model access, and AI Studio project settings.',
-        );
-      }
-      if (response.statusCode == 401) {
-        throw const TranslationUnavailableException(
-          'Gemini authentication failed. Check that the API key is valid and the Gemini API is enabled for its Google Cloud project.',
-        );
-      }
-      if (response.statusCode == 404) {
-        throw TranslationUnavailableException(
-          'Gemini model "$_model" was not found. Check the configured model name.',
-        );
-      }
-      throw TranslationUnavailableException(
-        'Gemini is temporarily unavailable (HTTP ${response.statusCode}). Please try again.',
-      );
-    }
+        if (response.statusCode != 200) {
+          if (response.statusCode == 400 ||
+              response.statusCode == 401 ||
+              response.statusCode == 403) {
+            throw TranslationUnavailableException(
+              response.statusCode == 400
+                  ? 'Gemini rejected the request. Check the request and model access.'
+                  : 'Gemini authentication failed. Check the API key and Gemini API access.',
+            );
+          }
+          lastIssue = response.statusCode == 429
+              ? 'Gemini request limit reached (HTTP 429).'
+              : 'Gemini model $model unavailable (HTTP ${response.statusCode}).';
+          continue;
+        }
 
-    try {
-      final payload = jsonDecode(response.body) as Map<String, dynamic>;
-      final candidates = payload['candidates'] as List<dynamic>?;
-      if (candidates == null || candidates.isEmpty) {
-        throw const FormatException('Gemini returned no translation.');
+        try {
+          final payload = jsonDecode(response.body) as Map<String, dynamic>;
+          final candidates = payload['candidates'] as List<dynamic>?;
+          if (candidates == null || candidates.isEmpty) {
+            throw const FormatException('Gemini returned no translation.');
+          }
+          final content = candidates.first as Map<String, dynamic>;
+          final parts = content['content']?['parts'] as List<dynamic>?;
+          if (parts == null || parts.isEmpty) {
+            throw const FormatException('Gemini returned no translation text.');
+          }
+          final generatedText =
+              (parts.first as Map<String, dynamic>)['text'] as String;
+          final result = jsonDecode(generatedText) as Map<String, dynamic>;
+          final detectedCode =
+              source?.code ?? _requiredString(result, 'detectedSourceLanguage');
+          final detectedSource = AppLanguage.fromCode(detectedCode);
+          if (detectedSource == target) {
+            throw const TranslationUnavailableException(
+              'The detected text is already in the selected target language. Choose a different To language.',
+            );
+          }
+          return Translation(
+            originalText: text.trim(),
+            translatedText: _requiredString(result, 'translation'),
+            sourceLanguage: detectedSource.code,
+            targetLanguage: target.code,
+            studentExplanation: _requiredString(result, 'studentExplanation'),
+            pronunciation: _optionalString(result, 'pronunciation'),
+            partOfSpeech: _optionalString(result, 'partOfSpeech'),
+            definition: _requiredString(result, 'definition'),
+            exampleSentence: _optionalString(result, 'exampleSentence'),
+            isAiGenerated: true,
+          );
+        } on FormatException {
+          lastIssue = 'Gemini model $model returned unreadable content.';
+        } on TypeError {
+          lastIssue = 'Gemini model $model returned incomplete content.';
+        }
+      } on TimeoutException {
+        lastIssue = 'Gemini model $model timed out.';
+      } on http.ClientException {
+        throw const TranslationUnavailableException(
+          'Could not connect to Gemini. Check your internet connection and try again.',
+        );
       }
-      final content = candidates.first as Map<String, dynamic>;
-      final parts = content['content']?['parts'] as List<dynamic>?;
-      if (parts == null || parts.isEmpty) {
-        throw const FormatException('Gemini returned no translation text.');
-      }
-      final generatedText =
-          (parts.first as Map<String, dynamic>)['text'] as String;
-      final result = jsonDecode(generatedText) as Map<String, dynamic>;
-      final translatedText = _requiredString(result, 'translation');
-      final definition = _requiredString(result, 'definition');
-      final explanation = _requiredString(result, 'studentExplanation');
-
-      return Translation(
-        originalText: text.trim(),
-        translatedText: translatedText,
-        sourceLanguage: source.code,
-        targetLanguage: target.code,
-        studentExplanation: explanation,
-        pronunciation: _optionalString(result, 'pronunciation'),
-        partOfSpeech: _optionalString(result, 'partOfSpeech'),
-        definition: definition,
-        exampleSentence: _optionalString(result, 'exampleSentence'),
-        isAiGenerated: true,
-      );
-    } on FormatException {
-      throw const TranslationUnavailableException(
-        'Gemini returned an unreadable response. Please try again.',
-      );
-    } on TypeError {
-      throw const TranslationUnavailableException(
-        'Gemini returned an incomplete response. Please try again.',
-      );
     }
+    throw TranslationUnavailableException(
+      'All Gemini models failed. ${lastIssue ?? 'Please check your connection and try again.'}',
+    );
   }
 
   String _apiLanguageCode(String code) => code == 'zh' ? 'zh-CN' : code;

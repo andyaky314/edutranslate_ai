@@ -2,14 +2,11 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
 
-/// Streams camera frames through on-device OCR and returns selected text.
 class LiveTextCameraScreen extends StatefulWidget {
-  const LiveTextCameraScreen({required this.script, super.key});
-
-  final TextRecognitionScript script;
+  const LiveTextCameraScreen({super.key});
 
   @override
   State<LiveTextCameraScreen> createState() => _LiveTextCameraScreenState();
@@ -17,19 +14,31 @@ class LiveTextCameraScreen extends StatefulWidget {
 
 class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     with WidgetsBindingObserver {
-  late final TextRecognizer _recognizer;
+  static final _wordPattern = RegExp(
+    r"^[\p{L}\p{M}]+(?:['’\-][\p{L}\p{M}]+)*$",
+    unicode: true,
+  );
+  static final _wordSeparators = RegExp(r"['’\-]");
+  static final _singleCjkCharacter = RegExp(r'[\u3400-\u9fff]');
+
+  final ImagePicker _imagePicker = ImagePicker();
+  late final TextRecognizer _latinRecognizer;
+  late final TextRecognizer _chineseRecognizer;
   CameraController? _controller;
   List<String> _candidates = const [];
+  String _recognizedText = '';
+  String? _capturedPath;
   String? _error;
   bool _processing = false;
   bool _initializing = false;
-  DateTime _lastProcessed = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _choosingImage = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _recognizer = TextRecognizer(script: widget.script);
+    _latinRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    _chineseRecognizer = TextRecognizer(script: TextRecognitionScript.chinese);
     _initializeCamera();
   }
 
@@ -38,7 +47,9 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       _releaseCamera();
-    } else if (state == AppLifecycleState.resumed) {
+    } else if (state == AppLifecycleState.resumed &&
+        !_choosingImage &&
+        _capturedPath == null) {
       _initializeCamera();
     }
   }
@@ -50,7 +61,7 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       if (!Platform.isAndroid && !Platform.isIOS) {
         throw CameraException(
           'unsupported_platform',
-          'Live text recognition is available on Android and iOS.',
+          'Camera recognition is available on Android and iOS.',
         );
       }
       final cameras = await availableCameras();
@@ -63,26 +74,21 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       );
       final controller = CameraController(
         camera,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
-        imageFormatGroup: Platform.isAndroid
-            ? ImageFormatGroup.nv21
-            : ImageFormatGroup.bgra8888,
       );
       _controller = controller;
       await controller.initialize();
-      if (!mounted) return;
-      await controller.startImageStream(_processFrame);
       if (mounted) setState(() => _error = null);
     } on CameraException catch (error) {
       if (mounted) setState(() => _error = _cameraErrorMessage(error));
       await _releaseCamera();
     } catch (error) {
-      debugPrint('Could not start live text recognition: $error');
+      debugPrint('Could not start text-reading camera: $error');
       if (mounted) {
         setState(
           () => _error =
-              'Could not start the camera. Check its permission and try again.',
+              'Could not start the camera. You can choose an image instead.',
         );
       }
       await _releaseCamera();
@@ -95,176 +101,234 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     if (error.code == 'CameraAccessDenied' ||
         error.code == 'CameraAccessDeniedWithoutPrompt' ||
         error.code == 'CameraAccessRestricted') {
-      return 'Camera access is needed to read text. Allow camera access in your device settings, then try again.';
+      return 'Camera access is needed to capture text. Allow camera access in device settings, or choose an image.';
     }
-    return error.description ?? 'Could not start the camera. Please try again.';
+    return error.description ??
+        'Could not start the camera. You can choose an image instead.';
   }
 
   Future<void> _releaseCamera() async {
     final controller = _controller;
     _controller = null;
     if (controller == null) return;
-    try {
-      if (controller.value.isStreamingImages) {
-        await controller.stopImageStream();
-      }
-    } catch (_) {
-      // The camera may already have been released by the platform.
-    }
     await controller.dispose();
   }
 
-  Future<void> _processFrame(CameraImage image) async {
-    final controller = _controller;
-    final now = DateTime.now();
-    if (_processing ||
-        controller == null ||
-        now.difference(_lastProcessed).inMilliseconds < 350) {
-      return;
+  List<String> _wordsIn(RecognizedText recognized) {
+    final words = <String, String>{};
+    for (final block in recognized.blocks) {
+      for (final line in block.lines) {
+        for (final element in line.elements) {
+          final word = element.text.trim();
+          if (!_isWord(word)) continue;
+          words.putIfAbsent(word.toLowerCase(), () => word);
+        }
+      }
     }
-    _processing = true;
-    _lastProcessed = now;
-    try {
-      final inputImage = _inputImageFromCameraImage(image, controller);
-      if (inputImage == null) return;
-      final recognized = await _recognizer.processImage(inputImage);
-      final candidates = <String>{};
+    return words.values.take(60).toList();
+  }
+
+  bool _isWord(String text) {
+    if (!_wordPattern.hasMatch(text)) return false;
+    final letters = text.replaceAll(_wordSeparators, '');
+    if (letters.runes.length >= 2) return true;
+    return text.toLowerCase() == 'a' ||
+        text.toLowerCase() == 'i' ||
+        _singleCjkCharacter.hasMatch(text);
+  }
+
+  Future<_RecognitionResult> _recognizeImage(String path) async {
+    final input = InputImage.fromFilePath(path);
+    final candidates = <String, String>{};
+    final lines = <_RecognizedLine>[];
+    for (final recognizer in [_latinRecognizer, _chineseRecognizer]) {
+      final recognized = await recognizer.processImage(input);
+      for (final word in _wordsIn(recognized)) {
+        candidates.putIfAbsent(word.toLowerCase(), () => word);
+      }
       for (final block in recognized.blocks) {
         for (final line in block.lines) {
           final text = line.text.trim();
-          if (text.isNotEmpty) candidates.add(text);
-          for (final element in line.elements) {
-            final word = element.text.trim();
-            if (word.isNotEmpty) candidates.add(word);
+          if (text.isEmpty) continue;
+          final duplicate = lines.any(
+            (existing) =>
+                existing.text.toLowerCase() == text.toLowerCase() &&
+                existing.bounds.overlaps(line.boundingBox),
+          );
+          if (!duplicate) {
+            lines.add(_RecognizedLine(text, line.boundingBox));
           }
         }
       }
-      if (mounted && !_sameCandidates(_candidates, candidates.toList())) {
-        setState(() => _candidates = candidates.take(40).toList());
+    }
+    lines.sort((a, b) {
+      final verticalDelta = a.bounds.top - b.bounds.top;
+      final sameRowTolerance = (a.bounds.height + b.bounds.height) / 4;
+      if (verticalDelta.abs() > sameRowTolerance) {
+        return verticalDelta.compareTo(0);
       }
-    } catch (error) {
-      debugPrint('Live OCR frame failed: $error');
-    } finally {
-      _processing = false;
-    }
-  }
-
-  InputImage? _inputImageFromCameraImage(
-    CameraImage image,
-    CameraController controller,
-  ) {
-    const orientations = <DeviceOrientation, int>{
-      DeviceOrientation.portraitUp: 0,
-      DeviceOrientation.landscapeLeft: 90,
-      DeviceOrientation.portraitDown: 180,
-      DeviceOrientation.landscapeRight: 270,
-    };
-    final sensorOrientation = controller.description.sensorOrientation;
-    InputImageRotation? rotation;
-    if (Platform.isIOS) {
-      rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
-    } else if (Platform.isAndroid) {
-      var compensation = orientations[controller.value.deviceOrientation];
-      if (compensation == null) return null;
-      compensation =
-          controller.description.lensDirection == CameraLensDirection.front
-          ? (sensorOrientation + compensation) % 360
-          : (sensorOrientation - compensation + 360) % 360;
-      rotation = InputImageRotationValue.fromRawValue(compensation);
-    }
-    final format = Platform.isAndroid
-        ? InputImageFormat.nv21
-        : InputImageFormatValue.fromRawValue(image.format.raw);
-    if (rotation == null ||
-        format == null ||
-        (Platform.isAndroid && format != InputImageFormat.nv21) ||
-        (Platform.isIOS && format != InputImageFormat.bgra8888) ||
-        image.planes.length != 1) {
-      return null;
-    }
-    final plane = image.planes.first;
-    return InputImage.fromBytes(
-      bytes: plane.bytes,
-      metadata: InputImageMetadata(
-        size: Size(image.width.toDouble(), image.height.toDouble()),
-        rotation: rotation,
-        format: format,
-        bytesPerRow: plane.bytesPerRow,
-      ),
+      return a.bounds.left.compareTo(b.bounds.left);
+    });
+    return _RecognitionResult(
+      candidates.values.take(60).toList(),
+      lines.map((line) => line.text).join('\n'),
     );
   }
 
-  bool _sameCandidates(List<String> current, List<String> next) {
-    if (current.length != next.length) return false;
-    for (var i = 0; i < current.length; i++) {
-      if (current[i] != next[i]) return false;
+  Future<void> _captureImage() async {
+    final controller = _controller;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        _processing ||
+        _capturedPath != null) {
+      return;
     }
-    return true;
+    setState(() {
+      _processing = true;
+      _candidates = const [];
+      _recognizedText = '';
+      _error = null;
+    });
+    try {
+      final photo = await controller.takePicture();
+      await _readImage(photo.path);
+    } catch (error) {
+      debugPrint('Could not capture or read image: $error');
+      if (mounted) {
+        setState(
+          () => _error = 'Could not read this image. Try again or choose one.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _chooseImage() async {
+    if (_processing) return;
+    _choosingImage = true;
+    if (mounted) {
+      setState(() {
+        _processing = true;
+        _error = null;
+      });
+    }
+    try {
+      await _releaseCamera();
+      final image = await _imagePicker.pickImage(source: ImageSource.gallery);
+      if (image == null || !mounted) return;
+      setState(() {
+        _candidates = const [];
+        _recognizedText = '';
+      });
+      await _readImage(image.path);
+    } catch (error) {
+      debugPrint('Could not choose or read image: $error');
+      if (mounted) {
+        setState(
+          () => _error = 'Could not open this image. Please choose another.',
+        );
+      }
+    } finally {
+      _choosingImage = false;
+      if (mounted) {
+        setState(() => _processing = false);
+        if (_capturedPath == null) await _initializeCamera();
+      }
+    }
+  }
+
+  Future<void> _readImage(String path) async {
+    if (mounted) setState(() => _capturedPath = path);
+    final result = await _recognizeImage(path);
+    if (mounted) {
+      setState(() {
+        _candidates = result.words;
+        _recognizedText = result.text;
+      });
+    }
+  }
+
+  Future<void> _retake() async {
+    if (!mounted) return;
+    setState(() {
+      _capturedPath = null;
+      _candidates = const [];
+      _recognizedText = '';
+      _error = null;
+    });
+    if (_controller == null) await _initializeCamera();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _releaseCamera();
-    _recognizer.close();
+    _latinRecognizer.close();
+    _chineseRecognizer.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
+    final isCaptured = _capturedPath != null;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Read with camera'),
+        title: const Text('Read text'),
         actions: [
           IconButton(
-            tooltip: 'Restart camera',
-            onPressed: _initializeCamera,
-            icon: const Icon(Icons.refresh),
+            tooltip: 'Choose image',
+            onPressed: _processing || _initializing ? null : _chooseImage,
+            icon: const Icon(Icons.photo_library_outlined),
           ),
         ],
       ),
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (controller?.value.isInitialized == true)
+          if (_capturedPath != null)
+            Center(child: Image.file(File(_capturedPath!), fit: BoxFit.contain))
+          else if (controller?.value.isInitialized == true)
             Center(child: CameraPreview(controller!))
           else
-            const ColoredBox(
+            ColoredBox(
               color: Colors.black,
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(
+                child: _error == null
+                    ? const CircularProgressIndicator()
+                    : const SizedBox.shrink(),
+              ),
             ),
           if (_error != null)
-            Center(
-              child: Card(
-                margin: const EdgeInsets.all(24),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.camera_alt_outlined, size: 36),
-                      const SizedBox(height: 12),
-                      Text(_error!, textAlign: TextAlign.center),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: _initializeCamera,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Try again'),
-                      ),
-                    ],
+            Align(
+              alignment: Alignment.topCenter,
+              child: SafeArea(
+                bottom: false,
+                child: Card(
+                  margin: const EdgeInsets.all(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(_error!, textAlign: TextAlign.center),
                   ),
                 ),
               ),
             ),
-          if (_error == null)
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: _DetectedTextPanel(
-                candidates: _candidates,
-                onSelect: (text) => Navigator.of(context).pop(text),
-              ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: _DetectedTextPanel(
+              candidates: _candidates,
+              captured: isCaptured,
+              busy: _processing,
+              canCapture: controller?.value.isInitialized == true,
+              canChooseImage: !_initializing,
+              onCapture: _captureImage,
+              onChooseImage: _chooseImage,
+              onRetake: _retake,
+              onSelectAll: () => Navigator.of(context).pop(_recognizedText),
+              onSelect: (text) => Navigator.of(context).pop(text),
             ),
+          ),
         ],
       ),
     );
@@ -272,10 +336,29 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
 }
 
 class _DetectedTextPanel extends StatelessWidget {
-  const _DetectedTextPanel({required this.candidates, required this.onSelect});
+  const _DetectedTextPanel({
+    required this.candidates,
+    required this.onSelect,
+    required this.captured,
+    required this.busy,
+    required this.canCapture,
+    required this.canChooseImage,
+    required this.onCapture,
+    required this.onChooseImage,
+    required this.onRetake,
+    required this.onSelectAll,
+  });
 
   final List<String> candidates;
   final ValueChanged<String> onSelect;
+  final bool captured;
+  final bool busy;
+  final bool canCapture;
+  final bool canChooseImage;
+  final VoidCallback onCapture;
+  final VoidCallback onChooseImage;
+  final VoidCallback onRetake;
+  final VoidCallback onSelectAll;
 
   @override
   Widget build(BuildContext context) {
@@ -283,7 +366,7 @@ class _DetectedTextPanel extends StatelessWidget {
       top: false,
       child: Container(
         width: double.infinity,
-        constraints: const BoxConstraints(maxHeight: 260),
+        constraints: const BoxConstraints(maxHeight: 280),
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.96),
@@ -293,14 +376,61 @@ class _DetectedTextPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Tap a word or line',
+              captured ? 'Detected words — tap to select' : 'Read text',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            if (candidates.isEmpty)
-              const Expanded(
+            Row(
+              children: [
+                if (!captured) ...[
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: busy || !canCapture ? null : onCapture,
+                      icon: const Icon(Icons.camera_alt),
+                      label: const Text('Capture'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: busy || !canChooseImage ? null : onChooseImage,
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: const Text('Choose image'),
+                    ),
+                  ),
+                ] else ...[
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: busy ? null : onRetake,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retake'),
+                    ),
+                  ),
+                  if (candidates.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.tonalIcon(
+                        onPressed: onSelectAll,
+                        icon: const Icon(Icons.select_all),
+                        label: const Text('Use all text'),
+                      ),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (busy)
+              const Expanded(child: Center(child: CircularProgressIndicator()))
+            else if (candidates.isEmpty)
+              Expanded(
                 child: Center(
-                  child: Text('Point the camera at clear, well-lit text.'),
+                  child: Text(
+                    captured
+                        ? 'No clear words found. Try a sharper image.'
+                        : 'Capture text or choose an image to find words.',
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               )
             else
@@ -314,7 +444,7 @@ class _DetectedTextPanel extends StatelessWidget {
                           (text) => ActionChip(
                             label: Text(
                               text,
-                              maxLines: 2,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             onPressed: () => onSelect(text),
@@ -329,4 +459,18 @@ class _DetectedTextPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+class _RecognitionResult {
+  const _RecognitionResult(this.words, this.text);
+
+  final List<String> words;
+  final String text;
+}
+
+class _RecognizedLine {
+  const _RecognizedLine(this.text, this.bounds);
+
+  final String text;
+  final Rect bounds;
 }

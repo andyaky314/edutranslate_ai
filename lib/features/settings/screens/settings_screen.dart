@@ -97,6 +97,7 @@ class SettingsScreen extends StatelessWidget {
               initialValue: preferredYearLevel?.toString() ?? 'all',
               decoration: const InputDecoration(
                 labelText: 'SJKC year level',
+                helperText: 'Optional. All years is selected by default.',
                 border: OutlineInputBorder(),
               ),
               items: [

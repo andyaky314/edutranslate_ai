@@ -9,6 +9,14 @@ import 'package:edutranslate_ai/features/vocabulary/models/vocabulary_item.dart'
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('each Gemini model timeout is 2.5 seconds', () {
+    expect(GeminiTranslationProvider.modelTimeout.inMilliseconds, 2500);
+    expect(
+      GeminiTranslationProvider.modelTimeout,
+      lessThan(const Duration(seconds: 3)),
+    );
+  });
+
   test('provider result is saved to translation history', () async {
     final repository = _MemoryRepository();
     final result = _translation;
@@ -53,6 +61,10 @@ void main() {
       );
       expect(request.url.queryParameters, isEmpty);
       expect(request.headers['x-goog-api-key'], 'test-key');
+      expect(jsonDecode(request.body)['generationConfig'], {
+        'responseMimeType': 'application/json',
+        'maxOutputTokens': 512,
+      });
       return http.Response(
         jsonEncode({
           'candidates': [
@@ -90,6 +102,101 @@ void main() {
 
     expect(result.translatedText, 'hai');
   });
+
+  test(
+    'Gemini falls back to the next model when the first is unavailable',
+    () async {
+      final requestedModels = <String>[];
+      final client = MockClient((request) async {
+        requestedModels.add(request.url.pathSegments[2].split(':').first);
+        if (requestedModels.length == 1) {
+          return http.Response('unavailable', 404);
+        }
+        return http.Response(
+          jsonEncode({
+            'candidates': [
+              {
+                'content': {
+                  'parts': [
+                    {
+                      'text': jsonEncode({
+                        'translation': 'hai',
+                        'definition': 'A greeting.',
+                        'studentExplanation': 'A friendly greeting.',
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          200,
+        );
+      });
+      final provider = GeminiTranslationProvider(
+        client: client,
+        apiKey: 'test-key',
+        models: const ['gemini-primary', 'gemini-fallback'],
+      );
+
+      final result = await provider.translate(
+        text: 'hello',
+        from: 'English',
+        to: 'Bahasa Melayu',
+      );
+
+      expect(result.translatedText, 'hai');
+      expect(requestedModels, ['gemini-primary', 'gemini-fallback']);
+    },
+  );
+
+  test(
+    'Gemini tries the next model when the previous request times out',
+    () async {
+      var calls = 0;
+      final client = MockClient((request) async {
+        calls++;
+        if (calls == 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        return http.Response(
+          jsonEncode({
+            'candidates': [
+              {
+                'content': {
+                  'parts': [
+                    {
+                      'text': jsonEncode({
+                        'translation': 'hai',
+                        'definition': 'A greeting.',
+                        'studentExplanation': 'A friendly greeting.',
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          200,
+        );
+      });
+      final provider = GeminiTranslationProvider(
+        client: client,
+        apiKey: 'test-key',
+        models: const ['gemini-primary', 'gemini-fallback'],
+        timeout: const Duration(milliseconds: 10),
+      );
+
+      final result = await provider.translate(
+        text: 'hello',
+        from: 'English',
+        to: 'Bahasa Melayu',
+      );
+
+      expect(result.translatedText, 'hai');
+      expect(calls, 2);
+    },
+  );
 
   test('blank Gemini API key is rejected before making a request', () async {
     final provider = GeminiTranslationProvider(

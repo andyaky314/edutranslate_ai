@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../../core/languages.dart';
 import '../../../data/repositories/learning_repository.dart';
@@ -27,6 +28,8 @@ class TranslatorScreen extends StatefulWidget {
 
 class _TranslatorScreenState extends State<TranslatorScreen> {
   final TextEditingController _controller = TextEditingController();
+  final SpeechToText _speech = SpeechToText();
+  final FlutterTts _tts = FlutterTts();
   late AppLanguage _sourceLanguage;
   late AppLanguage _targetLanguage;
   Translation? _result;
@@ -34,6 +37,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   bool _loading = false;
   bool _saving = false;
   bool _saved = false;
+  bool _listening = false;
+  bool _autoDetectSource = true;
   int _requestId = 0;
 
   @override
@@ -47,20 +52,40 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   @override
   void dispose() {
+    _speech.stop();
+    _tts.stop();
     _controller.dispose();
     super.dispose();
   }
 
   void _swapLanguages() {
+    if (_loading || _saving || _listening) return;
     setState(() {
       final previousSource = _sourceLanguage;
       _sourceLanguage = _targetLanguage;
       _targetLanguage = previousSource;
+      _invalidateTranslation();
     });
   }
 
+  void _invalidateTranslation() {
+    _result = null;
+    _error = null;
+    _saved = false;
+  }
+
+  void _onInputChanged(String _) {
+    if (_result == null && _error == null && !_saved) return;
+    setState(_invalidateTranslation);
+  }
+
   Future<void> _translate() async {
-    if (_loading) return;
+    if (_loading || _saving) return;
+    if (_listening) {
+      await _speech.stop();
+      if (!mounted) return;
+      setState(() => _listening = false);
+    }
     final requestId = ++_requestId;
     setState(() {
       _loading = true;
@@ -71,7 +96,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     try {
       final translation = await widget.service.translate(
         text: _controller.text,
-        from: _sourceLanguage.name,
+        from: _autoDetectSource ? 'Auto detect' : _sourceLanguage.name,
         to: _targetLanguage.name,
         yearLevel: widget.preferredYearLevel,
       );
@@ -115,25 +140,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   void _clear() {
+    if (_loading || _saving || _listening) return;
     _requestId++;
     _controller.clear();
-    setState(() {
-      _result = null;
-      _error = null;
-      _saved = false;
-      _loading = false;
-    });
+    setState(_invalidateTranslation);
   }
 
   Future<void> _readFromCamera() async {
     final text = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => LiveTextCameraScreen(
-          script: _sourceLanguage.code == 'zh'
-              ? TextRecognitionScript.chinese
-              : TextRecognitionScript.latin,
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => const LiveTextCameraScreen()),
     );
     if (text == null || !mounted) return;
     setState(() {
@@ -145,8 +160,121 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     });
   }
 
+  String? get _speechLocale => _autoDetectSource
+      ? null
+      : switch (_sourceLanguage.code) {
+          'zh' => 'zh_CN',
+          'ms' => 'ms_MY',
+          _ => 'en_US',
+        };
+
+  Future<void> _toggleVoiceInput() async {
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      return;
+    }
+    try {
+      final available = await _speech.initialize(
+        onStatus: (status) {
+          if (mounted) setState(() => _listening = status == 'listening');
+        },
+        onError: (error) {
+          if (mounted) {
+            setState(() => _listening = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Voice input error: ${error.errorMsg}')),
+            );
+          }
+        },
+      );
+      if (!available) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Speech recognition is unavailable on this device.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      final locales = await _speech.locales();
+      final requestedLocale = _speechLocale;
+      final prefix = requestedLocale?.substring(0, 2).toLowerCase();
+      final matching = prefix == null
+          ? const <LocaleName>[]
+          : locales
+                .where((item) => item.localeId.toLowerCase().startsWith(prefix))
+                .toList();
+      final localeId = prefix == null
+          ? null
+          : matching.isEmpty
+          ? requestedLocale
+          : matching.first.localeId;
+      await _speech.listen(
+        listenOptions: SpeechListenOptions(
+          localeId: localeId,
+          listenFor: const Duration(seconds: 30),
+        ),
+        onResult: (result) {
+          if (mounted) {
+            setState(() {
+              _controller.text = result.recognizedWords;
+              _controller.selection = TextSelection.collapsed(
+                offset: _controller.text.length,
+              );
+              _result = null;
+              _error = null;
+              _saved = false;
+            });
+          }
+        },
+      );
+      if (mounted) setState(() => _listening = true);
+    } catch (error) {
+      debugPrint('Voice input failed: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not start voice input. Check microphone permission and device language support.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _speak(String text, String languageCode) async {
+    if (text.trim().isEmpty) return;
+    final locale = switch (languageCode) {
+      'zh' => 'zh-CN',
+      'ms' => 'ms-MY',
+      _ => 'en-US',
+    };
+    try {
+      await _tts.stop();
+      await _tts.setLanguage(locale);
+      await _tts.speak(text);
+    } catch (error) {
+      debugPrint('Text to speech failed: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Speech playback is unavailable for this language on this device.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final result = _result;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
       children: [
@@ -163,23 +291,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         const SizedBox(height: 20),
         Row(
           children: [
-            Expanded(
-              child: _languageDropdown(
-                label: 'From',
-                value: _sourceLanguage,
-                onChanged: (language) => setState(() {
-                  _sourceLanguage = language;
-                  if (_sourceLanguage == _targetLanguage) {
-                    _targetLanguage = AppLanguage.all.firstWhere(
-                      (item) => item != language,
-                    );
-                  }
-                }),
-              ),
-            ),
+            Expanded(child: _sourceDropdown()),
             IconButton(
               tooltip: 'Swap languages',
-              onPressed: _swapLanguages,
+              onPressed: _loading || _saving || _listening
+                  ? null
+                  : _swapLanguages,
               icon: const Icon(Icons.swap_horiz),
             ),
             Expanded(
@@ -193,6 +310,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                       (item) => item != language,
                     );
                   }
+                  _invalidateTranslation();
                 }),
               ),
             ),
@@ -201,16 +319,18 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         const SizedBox(height: 16),
         TextField(
           controller: _controller,
+          enabled: !_loading && !_saving && !_listening,
           minLines: 2,
           maxLines: 4,
           textInputAction: TextInputAction.done,
+          onChanged: _onInputChanged,
           onSubmitted: (_) => _translate(),
           decoration: InputDecoration(
             hintText: 'Type a word or sentence',
             filled: true,
             suffixIcon: IconButton(
               tooltip: 'Clear text',
-              onPressed: _clear,
+              onPressed: _loading || _saving || _listening ? null : _clear,
               icon: const Icon(Icons.clear),
             ),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
@@ -218,13 +338,28 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         ),
         const SizedBox(height: 10),
         OutlinedButton.icon(
-          onPressed: _loading ? null : _readFromCamera,
+          onPressed: _loading || _saving || _listening ? null : _readFromCamera,
           icon: const Icon(Icons.document_scanner_outlined),
-          label: const Text('Read text with camera'),
+          label: const Text('Read text from camera or image'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: _loading || _saving ? null : _toggleVoiceInput,
+          icon: Icon(_listening ? Icons.stop_circle_outlined : Icons.mic_none),
+          label: Text(_listening ? 'Listening… tap to stop' : 'Press to speak'),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, top: 4),
+          child: Text(
+            _autoDetectSource
+                ? 'Auto detect is on. Your phone transcribes speech; EduTranslate identifies the transcript language.'
+                : 'Voice input uses ${_sourceLanguage.name}.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ),
         const SizedBox(height: 12),
         FilledButton.icon(
-          onPressed: _loading ? null : _translate,
+          onPressed: _loading || _saving ? null : _translate,
           icon: _loading
               ? const SizedBox(
                   width: 18,
@@ -236,12 +371,18 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         ),
         const SizedBox(height: 16),
         if (_error != null) _MessageCard(message: _error!, isError: true),
-        if (_result != null)
+        if (result != null)
           _TranslationCard(
-            translation: _result!,
+            translation: result,
             saving: _saving,
             saved: _saved,
             onSave: _saveVocabulary,
+            onSpeakTranslation: () =>
+                _speak(result.translatedText, result.targetLanguage),
+            onSpeakExample: () =>
+                _speak(result.exampleSentence ?? '', result.targetLanguage),
+            onSpeakOriginal: () =>
+                _speak(result.originalText, result.sourceLanguage),
           ),
         if (_result == null && _error == null)
           const _MessageCard(
@@ -271,10 +412,47 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             ),
           )
           .toList(),
-      onChanged: _loading
+      onChanged: _loading || _saving || _listening
           ? null
           : (language) {
               if (language != null) onChanged(language);
+            },
+    );
+  }
+
+  Widget _sourceDropdown() {
+    return DropdownButtonFormField<String>(
+      initialValue: _autoDetectSource ? 'auto' : _sourceLanguage.code,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: 'From',
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      items: [
+        const DropdownMenuItem(value: 'auto', child: Text('Auto detect')),
+        ...AppLanguage.all.map(
+          (language) => DropdownMenuItem(
+            value: language.code,
+            child: Text(language.name, overflow: TextOverflow.ellipsis),
+          ),
+        ),
+      ],
+      onChanged: _loading || _saving || _listening
+          ? null
+          : (code) {
+              if (code == null) return;
+              setState(() {
+                _autoDetectSource = code == 'auto';
+                if (!_autoDetectSource) {
+                  _sourceLanguage = AppLanguage.fromCode(code);
+                  if (_sourceLanguage == _targetLanguage) {
+                    _targetLanguage = AppLanguage.all.firstWhere(
+                      (item) => item != _sourceLanguage,
+                    );
+                  }
+                }
+                _invalidateTranslation();
+              });
             },
     );
   }
@@ -286,12 +464,18 @@ class _TranslationCard extends StatelessWidget {
     required this.saving,
     required this.saved,
     required this.onSave,
+    required this.onSpeakTranslation,
+    required this.onSpeakExample,
+    required this.onSpeakOriginal,
   });
 
   final Translation translation;
   final bool saving;
   final bool saved;
   final VoidCallback onSave;
+  final VoidCallback onSpeakTranslation;
+  final VoidCallback onSpeakExample;
+  final VoidCallback onSpeakOriginal;
 
   @override
   Widget build(BuildContext context) {
@@ -314,9 +498,25 @@ class _TranslationCard extends StatelessWidget {
               style: Theme.of(context).textTheme.headlineSmall
                   ?.copyWith(fontWeight: FontWeight.bold),
             ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                tooltip: 'Read translation aloud',
+                onPressed: onSpeakTranslation,
+                icon: const Icon(Icons.volume_up_outlined),
+              ),
+            ),
             const SizedBox(height: 4),
             Text(
               '${translation.originalText} · ${translation.partOfSpeech ?? ''}',
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                tooltip: 'Read original aloud',
+                onPressed: onSpeakOriginal,
+                icon: const Icon(Icons.volume_up_outlined),
+              ),
             ),
             if (translation.pronunciation?.isNotEmpty == true) ...[
               const SizedBox(height: 12),
@@ -347,6 +547,14 @@ class _TranslationCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(translation.exampleSentence!),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: onSpeakExample,
+                  icon: const Icon(Icons.volume_up_outlined),
+                  label: const Text('Read example aloud'),
+                ),
+              ),
             ],
             const SizedBox(height: 16),
             OutlinedButton.icon(

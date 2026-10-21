@@ -40,16 +40,19 @@ The current model is Gemini 3.8 Flash (`gemini-3.8-flash`). The key is compiled 
 - Translation requests require an internet connection and a configured API key.
 - SQLite stores translation history, saved vocabulary, flashcards/review data, and preferences locally.
 - The former local dictionary and JSON import flow have been removed. Existing dictionary rows are dropped by the database v1-to-v2 migration; other learning data is preserved.
-- Live camera OCR recognizes English/Malay (Latin script) or Chinese (when Chinese is selected as the source language) on-device. Tap a detected word or line to place it in the translator, review it, then translate. Camera frames are processed on-device and are not saved; only text you submit for translation is sent to Google. Still image capture, speech recognition, and cloud sync are not included.
+- Camera and gallery-image OCR recognize Latin-script English/Malay and Chinese together on-device. Capture freezes the preview so you can select detected words or send all recognized words to the translator. The translator can ask Gemini to detect the source language from typed, scanned, or transcribed text. Voice transcription uses the phone's speech service and its supported languages; read-aloud buttons use the phone's installed voices for the original, translation, and example sentence. Images are processed on-device; only text you submit for translation is sent to Google.
 
 ## Run and validate
 
 ```sh
 flutter pub get
 flutter run --dart-define=GEMINI_API_KEY=your-key
+flutter build apk --release --split-per-abi --dart-define=GEMINI_API_KEY=your-key
 flutter test
 flutter analyze
 ```
+
+The split build creates one release APK per CPU architecture. Install the `app-arm64-v8a-release.apk` build on most recent Android phones. Each release APK contains the Gemini key supplied at build time; do not distribute a client-embedded key publicly.
 
 The app uses `sqflite` on Android/iOS and `sqflite_common_ffi` on Windows, macOS, and Linux. Web storage is not configured.
 

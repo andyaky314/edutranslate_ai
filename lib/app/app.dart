@@ -37,27 +37,9 @@ class _EduTranslateAppState extends State<EduTranslateApp> {
     return MaterialApp(
       title: 'EduTranslate',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff4267c8),
-          surface: const Color(0xfff7f8fc),
-        ),
-        scaffoldBackgroundColor: const Color(0xfff7f8fc),
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          backgroundColor: Color(0xfff7f8fc),
-          foregroundColor: Color(0xff202746),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: const BorderSide(color: Color(0xffe4e8f2)),
-          ),
-        ),
-      ),
+      themeMode: ThemeMode.system,
+      theme: _buildTheme(Brightness.light),
+      darkTheme: _buildTheme(Brightness.dark),
       home: FutureBuilder<LearningRepository>(
         future: _repository,
         builder: (context, snapshot) {
@@ -82,6 +64,54 @@ class _EduTranslateAppState extends State<EduTranslateApp> {
       ),
     );
   }
+}
+
+ThemeData _buildTheme(Brightness brightness) {
+  final isDark = brightness == Brightness.dark;
+  final scheme = ColorScheme.fromSeed(
+    seedColor: const Color(0xff6048d8),
+    brightness: brightness,
+    surface: isDark ? const Color(0xff171629) : const Color(0xfffffbff),
+  );
+  return ThemeData(
+    useMaterial3: true,
+    brightness: brightness,
+    colorScheme: scheme,
+    scaffoldBackgroundColor: isDark
+        ? const Color(0xff12111f)
+        : const Color(0xfffff8ef),
+    appBarTheme: AppBarTheme(
+      centerTitle: false,
+      backgroundColor: isDark ? scheme.surface : const Color(0xfffff1dc),
+      foregroundColor: scheme.onSurface,
+    ),
+    cardTheme: CardThemeData(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      color: scheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+      hintStyle: TextStyle(color: scheme.onSurfaceVariant),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: BorderSide(color: scheme.outlineVariant),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(48, 50),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+    ),
+  );
 }
 
 class _StartupError extends StatelessWidget {
