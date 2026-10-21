@@ -18,7 +18,6 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
   late final List<TextRecognizer> _recognizers;
   CameraController? _controller;
   List<String> _candidates = const [];
-  String _recognizedText = '';
   String? _capturedPath;
   Size? _imageSize;
   List<Rect> _recognizedRegions = const [];
@@ -143,46 +142,47 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
   Future<_RecognitionResult> _recognizeImage(String path) async {
     final input = InputImage.fromFilePath(path);
     final candidates = <String, String>{};
-    final lines = <_RecognizedLine>[];
     final regions = <Rect>[];
+    final failedScripts = <String>[];
+    var successfulRecognizers = 0;
     for (final recognizer in _recognizers) {
-      final recognized = await recognizer.processImage(input);
-      for (final block in recognized.blocks) {
-        for (final line in block.lines) {
-          final text = line.text.trim();
-          if (text.isEmpty) continue;
-          candidates.putIfAbsent(text.toLowerCase(), () => text);
-          for (final element in line.elements) {
-            final word = element.text.trim();
-            if (word.isNotEmpty) {
-              candidates.putIfAbsent(word.toLowerCase(), () => word);
-              regions.add(element.boundingBox);
+      try {
+        final recognized = await recognizer.processImage(input);
+        successfulRecognizers++;
+        for (final block in recognized.blocks) {
+          for (final line in block.lines) {
+            final text = line.text.trim();
+            if (text.isEmpty) continue;
+            candidates.putIfAbsent(text.toLowerCase(), () => text);
+            for (final element in line.elements) {
+              final word = element.text.trim();
+              if (word.isNotEmpty) {
+                candidates.putIfAbsent(word.toLowerCase(), () => word);
+                regions.add(element.boundingBox);
+              }
             }
-          }
-          if (line.elements.isEmpty) regions.add(line.boundingBox);
-          final duplicate = lines.any(
-            (existing) =>
-                existing.text.toLowerCase() == text.toLowerCase() &&
-                existing.bounds.overlaps(line.boundingBox),
-          );
-          if (!duplicate) {
-            lines.add(_RecognizedLine(text, line.boundingBox));
+            if (line.elements.isEmpty) regions.add(line.boundingBox);
           }
         }
+      } catch (error, stackTrace) {
+        final script = recognizer.script.name;
+        debugPrint('Text recognition failed for $script: $error\n$stackTrace');
+        failedScripts.add(script);
       }
     }
-    lines.sort((a, b) {
-      final verticalDelta = a.bounds.top - b.bounds.top;
-      final sameRowTolerance = (a.bounds.height + b.bounds.height) / 4;
-      if (verticalDelta.abs() > sameRowTolerance) {
-        return verticalDelta.compareTo(0);
-      }
-      return a.bounds.left.compareTo(b.bounds.left);
-    });
+    if (successfulRecognizers == 0) {
+      throw const _RecognitionFailure(
+        'Text recognition failed for all supported languages. '
+        'Try another image or restart the app.',
+      );
+    }
     return _RecognitionResult(
       candidates.values.toList(),
-      lines.map((line) => line.text).join('\n'),
       regions,
+      failedScripts.isEmpty
+          ? null
+          : 'Some languages could not be processed. Detected text from the '
+                'available recognizers is shown.',
     );
   }
 
@@ -197,7 +197,6 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     setState(() {
       _processing = true;
       _candidates = const [];
-      _recognizedText = '';
       _error = null;
     });
     try {
@@ -207,8 +206,9 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       debugPrint('Could not capture or read image: $error\n$stackTrace');
       if (mounted) {
         setState(
-          () => _error =
-              'Could not read this image. Try again or choose another.',
+          () => _error = error is _RecognitionFailure
+              ? error.message
+              : 'Could not read this image. Try again or choose another.',
         );
       }
     } finally {
@@ -232,14 +232,15 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       if (image == null || !mounted) return;
       setState(() {
         _candidates = const [];
-        _recognizedText = '';
       });
       await _readImage(image.path);
     } catch (error, stackTrace) {
       debugPrint('Could not choose or read image: $error\n$stackTrace');
       if (mounted) {
         setState(
-          () => _error = 'Could not open this image. Please choose another.',
+          () => _error = error is _RecognitionFailure
+              ? error.message
+              : 'Could not open this image. Please choose another.',
         );
       }
     } finally {
@@ -268,9 +269,9 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     if (mounted) {
       setState(() {
         _candidates = result.words;
-        _recognizedText = result.text;
         _recognizedRegions = result.regions;
         _imageSize = imageSize;
+        _error = result.warning;
       });
     }
   }
@@ -282,7 +283,6 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       _imageSize = null;
       _recognizedRegions = const [];
       _candidates = const [];
-      _recognizedText = '';
       _error = null;
     });
     if (_controller == null) await _requestCamera();
@@ -348,7 +348,6 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
             child: _DetectedTextPanel(
               candidates: _candidates,
               captured: isCaptured,
-              recognizedText: _recognizedText,
               busy: _processing || _initializing,
               canStartCamera: !_initializing,
               cameraReady: controller?.value.isInitialized == true,
@@ -358,7 +357,6 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
                   : _requestCamera,
               onChooseImage: _chooseImage,
               onRetake: _retake,
-              onSelectAll: () => Navigator.of(context).pop(_recognizedText),
               onSelect: (text) => Navigator.of(context).pop(text),
             ),
           ),
@@ -373,7 +371,6 @@ class _DetectedTextPanel extends StatelessWidget {
     required this.candidates,
     required this.onSelect,
     required this.captured,
-    required this.recognizedText,
     required this.busy,
     required this.canStartCamera,
     required this.cameraReady,
@@ -381,13 +378,11 @@ class _DetectedTextPanel extends StatelessWidget {
     required this.onCapture,
     required this.onChooseImage,
     required this.onRetake,
-    required this.onSelectAll,
   });
 
   final List<String> candidates;
   final ValueChanged<String> onSelect;
   final bool captured;
-  final String recognizedText;
   final bool busy;
   final bool canStartCamera;
   final bool cameraReady;
@@ -395,7 +390,6 @@ class _DetectedTextPanel extends StatelessWidget {
   final VoidCallback onCapture;
   final VoidCallback onChooseImage;
   final VoidCallback onRetake;
-  final VoidCallback onSelectAll;
 
   @override
   Widget build(BuildContext context) {
@@ -418,21 +412,6 @@ class _DetectedTextPanel extends StatelessWidget {
                   : 'Read text',
               style: Theme.of(context).textTheme.titleMedium,
             ),
-            if (captured && recognizedText.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Container(
-                width: double.infinity,
-                constraints: const BoxConstraints(maxHeight: 72),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: SingleChildScrollView(
-                  child: SelectableText(recognizedText),
-                ),
-              ),
-            ],
             const SizedBox(height: 8),
             Row(
               children: [
@@ -466,16 +445,6 @@ class _DetectedTextPanel extends StatelessWidget {
                       label: const Text('Retake'),
                     ),
                   ),
-                  if (candidates.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton.tonalIcon(
-                        onPressed: onSelectAll,
-                        icon: const Icon(Icons.select_all),
-                        label: const Text('Use all text'),
-                      ),
-                    ),
-                  ],
                 ],
               ],
             ),
@@ -558,18 +527,17 @@ class _CameraStartPanel extends StatelessWidget {
 }
 
 class _RecognitionResult {
-  const _RecognitionResult(this.words, this.text, this.regions);
+  const _RecognitionResult(this.words, this.regions, this.warning);
 
   final List<String> words;
-  final String text;
   final List<Rect> regions;
+  final String? warning;
 }
 
-class _RecognizedLine {
-  const _RecognizedLine(this.text, this.bounds);
+class _RecognitionFailure implements Exception {
+  const _RecognitionFailure(this.message);
 
-  final String text;
-  final Rect bounds;
+  final String message;
 }
 
 class _CapturedImageWithRegions extends StatelessWidget {
