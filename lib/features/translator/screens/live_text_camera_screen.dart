@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -6,7 +7,11 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_picker/image_picker.dart';
 
 class LiveTextCameraScreen extends StatefulWidget {
-  const LiveTextCameraScreen({super.key});
+  const LiveTextCameraScreen({this.script, super.key});
+
+  /// Null runs Latin and Chinese recognition to support Auto detect and mixed
+  /// language images. A selected script keeps capture faster.
+  final TextRecognitionScript? script;
 
   @override
   State<LiveTextCameraScreen> createState() => _LiveTextCameraScreenState();
@@ -14,20 +19,14 @@ class LiveTextCameraScreen extends StatefulWidget {
 
 class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     with WidgetsBindingObserver {
-  static final _wordPattern = RegExp(
-    r"^[\p{L}\p{M}]+(?:['\u2019\-][\p{L}\p{M}]+)*$",
-    unicode: true,
-  );
-  static final _wordSeparators = RegExp(r"['\u2019\-]");
-  static final _singleCjkCharacter = RegExp(r'[\u3400-\u9fff]');
-
   final ImagePicker _imagePicker = ImagePicker();
-  late final TextRecognizer _latinRecognizer;
-  late final TextRecognizer _chineseRecognizer;
+  late final List<TextRecognizer> _recognizers;
   CameraController? _controller;
   List<String> _candidates = const [];
   String _recognizedText = '';
   String? _capturedPath;
+  Size? _imageSize;
+  List<Rect> _recognizedRegions = const [];
   String? _error;
   bool _processing = false;
   bool _initializing = false;
@@ -37,8 +36,11 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _latinRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
-    _chineseRecognizer = TextRecognizer(script: TextRecognitionScript.chinese);
+    _recognizers = (widget.script == null
+            ? [TextRecognitionScript.latin, TextRecognitionScript.chinese]
+            : [widget.script!])
+        .map((script) => TextRecognizer(script: script))
+        .toList();
     _initializeCamera();
   }
 
@@ -74,7 +76,9 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       );
       final controller = CameraController(
         camera,
-        ResolutionPreset.high,
+        // Ask for the sharpest still the device supports; small print needs
+        // more source pixels for OCR to find and distinguish characters.
+        ResolutionPreset.max,
         enableAudio: false,
       );
       _controller = controller;
@@ -114,45 +118,45 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     await controller.dispose();
   }
 
-  List<String> _wordsIn(RecognizedText recognized) {
-    final words = <String, String>{};
-    for (final block in recognized.blocks) {
-      for (final line in block.lines) {
-        for (final element in line.elements) {
-          final word = element.text.trim();
-          if (!_isWord(word)) continue;
-          words.putIfAbsent(word.toLowerCase(), () => word);
-        }
-      }
+  Future<Size?> _readImageSize(String path) async {
+    ui.Codec? codec;
+    try {
+      codec = await ui.instantiateImageCodec(await File(path).readAsBytes());
+      final frame = await codec.getNextFrame();
+      final size = Size(
+        frame.image.width.toDouble(),
+        frame.image.height.toDouble(),
+      );
+      frame.image.dispose();
+      return size;
+    } catch (error) {
+      debugPrint('Could not read captured image dimensions: $error');
+      return null;
+    } finally {
+      codec?.dispose();
     }
-    return words.values.take(60).toList();
-  }
-
-  bool _isWord(String text) {
-    if (!_wordPattern.hasMatch(text)) return false;
-    final letters = text.replaceAll(_wordSeparators, '');
-    if (letters.runes.length >= 2) return true;
-    return text.toLowerCase() == 'a' ||
-        text.toLowerCase() == 'i' ||
-        _singleCjkCharacter.hasMatch(text);
   }
 
   Future<_RecognitionResult> _recognizeImage(String path) async {
     final input = InputImage.fromFilePath(path);
     final candidates = <String, String>{};
     final lines = <_RecognizedLine>[];
-    for (final recognizer in [_latinRecognizer, _chineseRecognizer]) {
+    final regions = <Rect>[];
+    for (final recognizer in _recognizers) {
       final recognized = await recognizer.processImage(input);
-      for (final word in _wordsIn(recognized)) {
-        candidates.putIfAbsent(word.toLowerCase(), () => word);
-      }
       for (final block in recognized.blocks) {
         for (final line in block.lines) {
           final text = line.text.trim();
           if (text.isEmpty) continue;
-          // Retain whole OCR lines as selectable suggestions; strict word
-          // filtering can otherwise discard useful text, especially Chinese.
           candidates.putIfAbsent(text.toLowerCase(), () => text);
+          for (final element in line.elements) {
+            final word = element.text.trim();
+            if (word.isNotEmpty) {
+              candidates.putIfAbsent(word.toLowerCase(), () => word);
+              regions.add(element.boundingBox);
+            }
+          }
+          if (line.elements.isEmpty) regions.add(line.boundingBox);
           final duplicate = lines.any(
             (existing) =>
                 existing.text.toLowerCase() == text.toLowerCase() &&
@@ -173,8 +177,9 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       return a.bounds.left.compareTo(b.bounds.left);
     });
     return _RecognitionResult(
-      candidates.values.take(60).toList(),
+      candidates.values.toList(),
       lines.map((line) => line.text).join('\n'),
+      regions,
     );
   }
 
@@ -195,11 +200,12 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     try {
       final photo = await controller.takePicture();
       await _readImage(photo.path);
-    } catch (error) {
-      debugPrint('Could not capture or read image: $error');
+    } catch (error, stackTrace) {
+      debugPrint('Could not capture or read image: $error\n$stackTrace');
       if (mounted) {
         setState(
-          () => _error = 'Could not read this image. Try again or choose one.',
+          () => _error =
+              'Could not read this image. Try again or choose another.',
         );
       }
     } finally {
@@ -225,8 +231,8 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
         _recognizedText = '';
       });
       await _readImage(image.path);
-    } catch (error) {
-      debugPrint('Could not choose or read image: $error');
+    } catch (error, stackTrace) {
+      debugPrint('Could not choose or read image: $error\n$stackTrace');
       if (mounted) {
         setState(
           () => _error = 'Could not open this image. Please choose another.',
@@ -242,12 +248,23 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
   }
 
   Future<void> _readImage(String path) async {
-    if (mounted) setState(() => _capturedPath = path);
-    final result = await _recognizeImage(path);
+    if (mounted) {
+      setState(() {
+        _capturedPath = path;
+        _imageSize = null;
+        _recognizedRegions = const [];
+      });
+    }
+    final imageSizeFuture = _readImageSize(path);
+    final recognitionFuture = _recognizeImage(path);
+    final imageSize = await imageSizeFuture;
+    final result = await recognitionFuture;
     if (mounted) {
       setState(() {
         _candidates = result.words;
         _recognizedText = result.text;
+        _recognizedRegions = result.regions;
+        _imageSize = imageSize;
       });
     }
   }
@@ -256,6 +273,8 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     if (!mounted) return;
     setState(() {
       _capturedPath = null;
+      _imageSize = null;
+      _recognizedRegions = const [];
       _candidates = const [];
       _recognizedText = '';
       _error = null;
@@ -267,8 +286,9 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _releaseCamera();
-    _latinRecognizer.close();
-    _chineseRecognizer.close();
+    for (final recognizer in _recognizers) {
+      recognizer.close();
+    }
     super.dispose();
   }
 
@@ -291,7 +311,11 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
         fit: StackFit.expand,
         children: [
           if (_capturedPath != null)
-            Center(child: Image.file(File(_capturedPath!), fit: BoxFit.contain))
+            _CapturedImageWithRegions(
+              path: _capturedPath!,
+              imageSize: _imageSize,
+              regions: _recognizedRegions,
+            )
           else if (controller?.value.isInitialized == true)
             Center(child: CameraPreview(controller!))
           else
@@ -323,7 +347,6 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
               candidates: _candidates,
               captured: isCaptured,
               recognizedText: _recognizedText,
-              canUseAll: _recognizedText.isNotEmpty,
               busy: _processing,
               canCapture: controller?.value.isInitialized == true,
               canChooseImage: !_initializing,
@@ -346,7 +369,6 @@ class _DetectedTextPanel extends StatelessWidget {
     required this.onSelect,
     required this.captured,
     required this.recognizedText,
-    required this.canUseAll,
     required this.busy,
     required this.canCapture,
     required this.canChooseImage,
@@ -360,7 +382,6 @@ class _DetectedTextPanel extends StatelessWidget {
   final ValueChanged<String> onSelect;
   final bool captured;
   final String recognizedText;
-  final bool canUseAll;
   final bool busy;
   final bool canCapture;
   final bool canChooseImage;
@@ -385,22 +406,21 @@ class _DetectedTextPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              captured ? 'Captured text ? tap a word to use it' : 'Read text',
+              captured ? 'Recognized areas outlined — tap a word' : 'Read text',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             if (captured && recognizedText.isNotEmpty) ...[
               const SizedBox(height: 6),
               Container(
                 width: double.infinity,
-                constraints: const BoxConstraints(maxHeight: 88),
-                padding: const EdgeInsets.all(10),
+                constraints: const BoxConstraints(maxHeight: 72),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: SingleChildScrollView(
-                  child: SelectableText(recognizedText,
-                      style: Theme.of(context).textTheme.bodyMedium),
+                  child: SelectableText(recognizedText),
                 ),
               ),
             ],
@@ -431,7 +451,7 @@ class _DetectedTextPanel extends StatelessWidget {
                       label: const Text('Retake'),
                     ),
                   ),
-                  if (canUseAll) ...[
+                  if (candidates.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     Expanded(
                       child: FilledButton.tonalIcon(
@@ -452,7 +472,7 @@ class _DetectedTextPanel extends StatelessWidget {
                 child: Center(
                   child: Text(
                     captured
-                        ? 'No text found. Move closer, keep the camera steady, and try brighter lighting. You can also choose a photo.'
+                        ? 'No text found. Try a closer, sharper photo or choose another image.'
                         : 'Capture text or choose an image to find words.',
                     textAlign: TextAlign.center,
                   ),
@@ -469,7 +489,7 @@ class _DetectedTextPanel extends StatelessWidget {
                           (text) => ActionChip(
                             label: Text(
                               text,
-                              maxLines: 1,
+                              maxLines: 3,
                               overflow: TextOverflow.ellipsis,
                             ),
                             onPressed: () => onSelect(text),
@@ -487,10 +507,11 @@ class _DetectedTextPanel extends StatelessWidget {
 }
 
 class _RecognitionResult {
-  const _RecognitionResult(this.words, this.text);
+  const _RecognitionResult(this.words, this.text, this.regions);
 
   final List<String> words;
   final String text;
+  final List<Rect> regions;
 }
 
 class _RecognizedLine {
@@ -498,4 +519,75 @@ class _RecognizedLine {
 
   final String text;
   final Rect bounds;
+}
+
+class _CapturedImageWithRegions extends StatelessWidget {
+  const _CapturedImageWithRegions({
+    required this.path,
+    required this.imageSize,
+    required this.regions,
+  });
+
+  final String path;
+  final Size? imageSize;
+  final List<Rect> regions;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Center(child: Image.file(File(path), fit: BoxFit.contain)),
+              if (imageSize != null && regions.isNotEmpty)
+                CustomPaint(
+                  painter: _TextRegionPainter(
+                    imageSize: imageSize!,
+                    regions: regions,
+                  ),
+                ),
+            ],
+          );
+        },
+      );
+}
+
+class _TextRegionPainter extends CustomPainter {
+  const _TextRegionPainter({
+    required this.imageSize,
+    required this.regions,
+  });
+
+  final Size imageSize;
+  final List<Rect> regions;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = (size.width / imageSize.width) <
+            (size.height / imageSize.height)
+        ? (size.width / imageSize.width)
+        : (size.height / imageSize.height);
+    final fittedWidth = imageSize.width * scale;
+    final fittedHeight = imageSize.height * scale;
+    final offsetX = (size.width - fittedWidth) / 2;
+    final offsetY = (size.height - fittedHeight) / 2;
+    final paint = Paint()
+      ..color = Colors.lightGreenAccent.withValues(alpha: 0.9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    for (final region in regions) {
+      final fitted = Rect.fromLTRB(
+        offsetX + region.left * scale,
+        offsetY + region.top * scale,
+        offsetX + region.right * scale,
+        offsetY + region.bottom * scale,
+      );
+      canvas.drawRect(fitted, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TextRegionPainter oldDelegate) =>
+      imageSize != oldDelegate.imageSize ||
+      regions != oldDelegate.regions;
 }
