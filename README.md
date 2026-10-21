@@ -40,7 +40,7 @@ The current model is Gemini 3.8 Flash (`gemini-3.8-flash`). The key is compiled 
 - Translation requests require an internet connection and a configured API key.
 - SQLite stores translation history, saved vocabulary, flashcards/review data, and preferences locally.
 - The former local dictionary and JSON import flow have been removed. Existing dictionary rows are dropped by the database v1-to-v2 migration; other learning data is preserved.
-- Camera and gallery-image OCR recognize Latin-script English/Malay and Chinese together on-device. Capture freezes the preview so you can select detected words or send all recognized words to the translator. The translator can ask Gemini to detect the source language from typed, scanned, or transcribed text. Voice transcription uses the phone's speech service and its supported languages; read-aloud buttons use the phone's installed voices for the original, translation, and example sentence. Images are processed on-device; only text you submit for translation is sent to Google.
+- Camera and gallery-image OCR recognize English and Malay with Latin-script recognition, and Simplified and Traditional Chinese with Chinese recognition, on-device. Camera OCR detects text from the live preview; tap a detected word or line to confirm it for translation. Gallery images are also scanned on-device, and only text you select and submit for translation is sent to Google. The translator can ask Gemini to detect the source language from typed, scanned, or transcribed text. Voice transcription uses the phone's speech service and its supported languages; read-aloud buttons use the phone's installed voices for the original, translation, and example sentence.
 
 ## Run and validate
 
