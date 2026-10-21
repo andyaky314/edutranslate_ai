@@ -10,6 +10,7 @@ class Translation {
     this.partOfSpeech,
     this.definition,
     this.exampleSentence,
+    this.alternateMeanings = const [],
     this.isAiGenerated = false,
   });
 
@@ -23,6 +24,7 @@ class Translation {
   final String? partOfSpeech;
   final String? definition;
   final String? exampleSentence;
+  final List<String> alternateMeanings;
   final bool isAiGenerated;
 
   Map<String, Object?> toJson() => {
@@ -36,6 +38,7 @@ class Translation {
     'partOfSpeech': partOfSpeech,
     'definition': definition,
     'exampleSentence': exampleSentence,
+    'alternateMeanings': alternateMeanings,
     'isAiGenerated': isAiGenerated,
   };
 
@@ -50,6 +53,10 @@ class Translation {
     partOfSpeech: json['partOfSpeech'] as String?,
     definition: json['definition'] as String?,
     exampleSentence: json['exampleSentence'] as String?,
+    alternateMeanings: (json['alternateMeanings'] as List<dynamic>?)
+            ?.whereType<String>()
+            .toList() ??
+        const [],
     isAiGenerated: json['isAiGenerated'] as bool? ?? false,
   );
 }

@@ -534,11 +534,12 @@ class _TranslationCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
             ],
-            Text(
-              translation.translatedText,
-              style: Theme.of(context).textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
+            if (translation.alternateMeanings.length <= 1)
+              Text(
+                translation.translatedText,
+                style: Theme.of(context).textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
             Align(
               alignment: Alignment.centerLeft,
               child: IconButton(
@@ -547,6 +548,26 @@ class _TranslationCard extends StatelessWidget {
                 icon: const Icon(Icons.volume_up_outlined),
               ),
             ),
+            if (translation.alternateMeanings.length > 1) ...[
+              const SizedBox(height: 8),
+              Text('Possible meanings',
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              for (var index = 0;
+                  index < translation.alternateMeanings.length;
+                  index++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    '${index + 1}. ${translation.alternateMeanings[index]}',
+                    style: index == 0
+                        ? Theme.of(context).textTheme.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold)
+                        : null,
+                  ),
+                ),
+            ],
             const SizedBox(height: 4),
             Text(
               '${translation.originalText} · ${translation.partOfSpeech ?? ''}',

@@ -322,6 +322,7 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
             child: _DetectedTextPanel(
               candidates: _candidates,
               captured: isCaptured,
+              recognizedText: _recognizedText,
               canUseAll: _recognizedText.isNotEmpty,
               busy: _processing,
               canCapture: controller?.value.isInitialized == true,
@@ -344,6 +345,7 @@ class _DetectedTextPanel extends StatelessWidget {
     required this.candidates,
     required this.onSelect,
     required this.captured,
+    required this.recognizedText,
     required this.canUseAll,
     required this.busy,
     required this.canCapture,
@@ -357,6 +359,7 @@ class _DetectedTextPanel extends StatelessWidget {
   final List<String> candidates;
   final ValueChanged<String> onSelect;
   final bool captured;
+  final String recognizedText;
   final bool canUseAll;
   final bool busy;
   final bool canCapture;
@@ -382,9 +385,25 @@ class _DetectedTextPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              captured ? 'Detected words — tap to select' : 'Read text',
+              captured ? 'Captured text ? tap a word to use it' : 'Read text',
               style: Theme.of(context).textTheme.titleMedium,
             ),
+            if (captured && recognizedText.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(maxHeight: 88),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: SingleChildScrollView(
+                  child: SelectableText(recognizedText,
+                      style: Theme.of(context).textTheme.bodyMedium),
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             Row(
               children: [
@@ -433,7 +452,7 @@ class _DetectedTextPanel extends StatelessWidget {
                 child: Center(
                   child: Text(
                     captured
-                        ? 'No text found. Try a closer, sharper image with good lighting.'
+                        ? 'No text found. Move closer, keep the camera steady, and try brighter lighting. You can also choose a photo.'
                         : 'Capture text or choose an image to find words.',
                     textAlign: TextAlign.center,
                   ),
