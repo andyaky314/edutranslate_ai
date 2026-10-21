@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../../core/languages.dart';
@@ -147,15 +146,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   Future<void> _readFromCamera() async {
     final text = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => LiveTextCameraScreen(
-          script: _autoDetectSource
-              ? null
-              : _sourceLanguage.code == 'zh'
-                  ? TextRecognitionScript.chinese
-                  : TextRecognitionScript.latin,
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => const LiveTextCameraScreen()),
     );
     if (text == null || !mounted) return;
     setState(() {

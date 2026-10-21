@@ -7,12 +7,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_picker/image_picker.dart';
 
 class LiveTextCameraScreen extends StatefulWidget {
-  const LiveTextCameraScreen({this.script, super.key});
-
-  /// Null runs Latin and Chinese recognition to support Auto detect and mixed
-  /// language images. A selected script keeps capture faster.
-  final TextRecognitionScript? script;
-
+  const LiveTextCameraScreen({super.key});
   @override
   State<LiveTextCameraScreen> createState() => _LiveTextCameraScreenState();
 }
@@ -31,17 +26,16 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
   bool _processing = false;
   bool _initializing = false;
   bool _choosingImage = false;
+  bool _cameraRequested = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _recognizers = (widget.script == null
-            ? [TextRecognitionScript.latin, TextRecognitionScript.chinese]
-            : [widget.script!])
-        .map((script) => TextRecognizer(script: script))
-        .toList();
-    _initializeCamera();
+    _recognizers = [
+      TextRecognitionScript.latin,
+      TextRecognitionScript.chinese,
+    ].map((script) => TextRecognizer(script: script)).toList();
   }
 
   @override
@@ -50,15 +44,24 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
         state == AppLifecycleState.paused) {
       _releaseCamera();
     } else if (state == AppLifecycleState.resumed &&
+        _cameraRequested &&
         !_choosingImage &&
         _capturedPath == null) {
       _initializeCamera();
     }
   }
 
+  Future<void> _requestCamera() async {
+    _cameraRequested = true;
+    await _initializeCamera();
+  }
+
   Future<void> _initializeCamera() async {
     if (_initializing || _controller != null || !mounted) return;
-    _initializing = true;
+    setState(() {
+      _initializing = true;
+      _error = null;
+    });
     try {
       if (!Platform.isAndroid && !Platform.isIOS) {
         throw CameraException(
@@ -97,7 +100,7 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       }
       await _releaseCamera();
     } finally {
-      _initializing = false;
+      if (mounted) setState(() => _initializing = false);
     }
   }
 
@@ -215,6 +218,7 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
 
   Future<void> _chooseImage() async {
     if (_processing) return;
+    final restoreCamera = _controller != null;
     _choosingImage = true;
     if (mounted) {
       setState(() {
@@ -242,7 +246,9 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       _choosingImage = false;
       if (mounted) {
         setState(() => _processing = false);
-        if (_capturedPath == null) await _initializeCamera();
+        if (_capturedPath == null && restoreCamera) {
+          await _initializeCamera();
+        }
       }
     }
   }
@@ -279,7 +285,7 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       _recognizedText = '';
       _error = null;
     });
-    if (_controller == null) await _initializeCamera();
+    if (_controller == null) await _requestCamera();
   }
 
   @override
@@ -320,12 +326,8 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
             Center(child: CameraPreview(controller!))
           else
             ColoredBox(
-              color: Colors.black,
-              child: Center(
-                child: _error == null
-                    ? const CircularProgressIndicator()
-                    : const SizedBox.shrink(),
-              ),
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              child: const _CameraStartPanel(),
             ),
           if (_error != null)
             Align(
@@ -347,10 +349,13 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
               candidates: _candidates,
               captured: isCaptured,
               recognizedText: _recognizedText,
-              busy: _processing,
-              canCapture: controller?.value.isInitialized == true,
+              busy: _processing || _initializing,
+              canStartCamera: !_initializing,
+              cameraReady: controller?.value.isInitialized == true,
               canChooseImage: !_initializing,
-              onCapture: _captureImage,
+              onCapture: controller?.value.isInitialized == true
+                  ? _captureImage
+                  : _requestCamera,
               onChooseImage: _chooseImage,
               onRetake: _retake,
               onSelectAll: () => Navigator.of(context).pop(_recognizedText),
@@ -370,7 +375,8 @@ class _DetectedTextPanel extends StatelessWidget {
     required this.captured,
     required this.recognizedText,
     required this.busy,
-    required this.canCapture,
+    required this.canStartCamera,
+    required this.cameraReady,
     required this.canChooseImage,
     required this.onCapture,
     required this.onChooseImage,
@@ -383,7 +389,8 @@ class _DetectedTextPanel extends StatelessWidget {
   final bool captured;
   final String recognizedText;
   final bool busy;
-  final bool canCapture;
+  final bool canStartCamera;
+  final bool cameraReady;
   final bool canChooseImage;
   final VoidCallback onCapture;
   final VoidCallback onChooseImage;
@@ -406,7 +413,9 @@ class _DetectedTextPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              captured ? 'Recognized areas outlined — tap a word' : 'Read text',
+              captured
+                  ? 'Possible words and lines — tap one to use it'
+                  : 'Read text',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             if (captured && recognizedText.isNotEmpty) ...[
@@ -430,9 +439,15 @@ class _DetectedTextPanel extends StatelessWidget {
                 if (!captured) ...[
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: busy || !canCapture ? null : onCapture,
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text('Capture'),
+                      onPressed: busy || !canStartCamera ? null : onCapture,
+                      icon: Icon(
+                        cameraReady
+                            ? Icons.camera_alt
+                            : Icons.camera_alt_outlined,
+                      ),
+                      label: Text(
+                        cameraReady ? 'Capture photo' : 'Open camera',
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -506,6 +521,42 @@ class _DetectedTextPanel extends StatelessWidget {
   }
 }
 
+class _CameraStartPanel extends StatelessWidget {
+  const _CameraStartPanel();
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Transform.translate(
+        offset: const Offset(0, -100),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.document_scanner_outlined,
+              size: 64,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Read words from a photo',
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Take a photo now or choose an image saved on your phone.',
+              style: Theme.of(context).textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class _RecognitionResult {
   const _RecognitionResult(this.words, this.text, this.regions);
 
@@ -534,37 +585,34 @@ class _CapturedImageWithRegions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
-        builder: (context, constraints) {
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Center(child: Image.file(File(path), fit: BoxFit.contain)),
-              if (imageSize != null && regions.isNotEmpty)
-                CustomPaint(
-                  painter: _TextRegionPainter(
-                    imageSize: imageSize!,
-                    regions: regions,
-                  ),
-                ),
-            ],
-          );
-        },
+    builder: (context, constraints) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(child: Image.file(File(path), fit: BoxFit.contain)),
+          if (imageSize != null && regions.isNotEmpty)
+            CustomPaint(
+              painter: _TextRegionPainter(
+                imageSize: imageSize!,
+                regions: regions,
+              ),
+            ),
+        ],
       );
+    },
+  );
 }
 
 class _TextRegionPainter extends CustomPainter {
-  const _TextRegionPainter({
-    required this.imageSize,
-    required this.regions,
-  });
+  const _TextRegionPainter({required this.imageSize, required this.regions});
 
   final Size imageSize;
   final List<Rect> regions;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final scale = (size.width / imageSize.width) <
-            (size.height / imageSize.height)
+    final scale =
+        (size.width / imageSize.width) < (size.height / imageSize.height)
         ? (size.width / imageSize.width)
         : (size.height / imageSize.height);
     final fittedWidth = imageSize.width * scale;
@@ -588,6 +636,5 @@ class _TextRegionPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TextRegionPainter oldDelegate) =>
-      imageSize != oldDelegate.imageSize ||
-      regions != oldDelegate.regions;
+      imageSize != oldDelegate.imageSize || regions != oldDelegate.regions;
 }
