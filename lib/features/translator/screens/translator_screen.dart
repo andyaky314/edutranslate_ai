@@ -146,8 +146,37 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   Future<void> _readFromCamera() async {
+    final source = await showModalBottomSheet<TextReaderSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Open camera to capture'),
+              subtitle: const Text(
+                'Identify text live and tap a word to use it',
+              ),
+              onTap: () => Navigator.pop(context, TextReaderSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Read an image from storage'),
+              subtitle: const Text(
+                'Choose a saved photo and tap detected text',
+              ),
+              onTap: () => Navigator.pop(context, TextReaderSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
     final text = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const LiveTextCameraScreen()),
+      MaterialPageRoute(
+        builder: (_) => LiveTextCameraScreen(initialSource: source),
+      ),
     );
     if (text == null || !mounted) return;
     setState(() {
