@@ -45,9 +45,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   void initState() {
     super.initState();
     _sourceLanguage = widget.preferredLanguage;
-    _targetLanguage = AppLanguage.all.firstWhere(
-      (language) => language != _sourceLanguage,
-    );
+    _targetLanguage = AppLanguage.chinese;
   }
 
   @override
@@ -168,6 +166,43 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           _ => 'en_US',
         };
 
+  String? _availableSpeechLocale(
+    List<LocaleName> locales,
+    String requestedLocale,
+  ) {
+    String normalized(String locale) =>
+        locale.toLowerCase().replaceAll('-', '_').split('_#').first;
+
+    final requested = normalized(requestedLocale);
+    final exact = locales.where(
+      (locale) => normalized(locale.localeId) == requested,
+    );
+    if (exact.isNotEmpty) return exact.first.localeId;
+
+    if (requested.startsWith('zh')) {
+      // Prefer Simplified Mandarin. A generic zh locale is an acceptable
+      // fallback, but zh-HK and zh-TW are Cantonese/Traditional alternatives.
+      for (final locale in locales) {
+        final id = normalized(locale.localeId);
+        if (id.startsWith('zh_cn') || id.startsWith('zh_hans')) {
+          return locale.localeId;
+        }
+      }
+      for (final locale in locales) {
+        if (normalized(locale.localeId) == 'zh') return locale.localeId;
+      }
+      return null;
+    }
+
+    final language = requested.split('_').first;
+    for (final locale in locales) {
+      if (normalized(locale.localeId).startsWith('${language}_')) {
+        return locale.localeId;
+      }
+    }
+    return null;
+  }
+
   Future<void> _toggleVoiceInput() async {
     if (_listening) {
       await _speech.stop();
@@ -202,17 +237,23 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       }
       final locales = await _speech.locales();
       final requestedLocale = _speechLocale;
-      final prefix = requestedLocale?.substring(0, 2).toLowerCase();
-      final matching = prefix == null
-          ? const <LocaleName>[]
-          : locales
-                .where((item) => item.localeId.toLowerCase().startsWith(prefix))
-                .toList();
-      final localeId = prefix == null
+      final localeId = requestedLocale == null
           ? null
-          : matching.isEmpty
-          ? requestedLocale
-          : matching.first.localeId;
+          : _availableSpeechLocale(locales, requestedLocale);
+      if (requestedLocale != null && localeId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                _sourceLanguage.code == 'zh'
+                    ? 'Mandarin speech recognition is not available. Install or enable a Simplified Chinese speech pack in your phone settings.'
+                    : 'Speech recognition for ${_sourceLanguage.name} is not available in your phone\'s speech service.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
       await _speech.listen(
         listenOptions: SpeechListenOptions(
           localeId: localeId,
@@ -352,8 +393,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           padding: const EdgeInsets.only(left: 4, top: 4),
           child: Text(
             _autoDetectSource
-                ? 'Auto detect is on. Your phone transcribes speech; EduTranslate identifies the transcript language.'
-                : 'Voice input uses ${_sourceLanguage.name}.',
+                ? 'Auto detect asks Android 14+ to switch between English, Malay, and Mandarin. This needs a compatible speech service and its language models.'
+                : 'Voice input uses ${_sourceLanguage.name}. For Chinese, the app requests Simplified Mandarin.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),

@@ -193,6 +193,7 @@ class _LearningShellState extends State<LearningShell> {
           ? null
           : int.tryParse(savedYear);
       if (savedYear != null &&
+          savedYear != 'all' &&
           (parsedYear == null || parsedYear < 1 || parsedYear > 6)) {
         throw FormatException('Unsupported preferred year level: $savedYear');
       }

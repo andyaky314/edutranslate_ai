@@ -18,7 +18,8 @@ dependencies:
   http: ^1.2.2
   camera: ^0.12.1
   google_mlkit_text_recognition: ^0.17.1
-  speech_to_text: ^7.5.0
+  speech_to_text:
+    path: packages/speech_to_text
   flutter_tts: ^4.2.5
   image_picker: ^1.2.4
 
