@@ -9,11 +9,11 @@ import 'package:edutranslate_ai/features/vocabulary/models/vocabulary_item.dart'
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('each Gemini model timeout is 2.5 seconds', () {
-    expect(GeminiTranslationProvider.modelTimeout.inMilliseconds, 2500);
+  test('each Gemini model timeout is 12 seconds', () {
+    expect(GeminiTranslationProvider.modelTimeout.inSeconds, 12);
     expect(
       GeminiTranslationProvider.modelTimeout,
-      lessThan(const Duration(seconds: 3)),
+      lessThanOrEqualTo(const Duration(seconds: 12)),
     );
   });
 
@@ -63,7 +63,7 @@ void main() {
       expect(request.headers['x-goog-api-key'], 'test-key');
       expect(jsonDecode(request.body)['generationConfig'], {
         'responseMimeType': 'application/json',
-        'maxOutputTokens': 512,
+        'maxOutputTokens': 1536,
       });
       return http.Response(
         jsonEncode({
@@ -74,6 +74,23 @@ void main() {
                   {
                     'text': jsonEncode({
                       'translation': 'hai',
+                      'meanings': [
+                        {
+                          'translatedText': 'hai',
+                          'definition': 'A greeting.',
+                          'studentExplanation': 'A friendly greeting.',
+                          'exampleSentence': 'Hai!',
+                          'partOfSpeech': 'interjection',
+                        },
+                        {
+                          'translatedText': 'selamat tinggal',
+                          'definition': 'Words said when leaving.',
+                          'studentExplanation':
+                              'Say this when you are going away.',
+                          'exampleSentence': 'Selamat tinggal, cikgu!',
+                          'partOfSpeech': 'phrase',
+                        },
+                      ],
                       'partOfSpeech': 'noun',
                       'definition': 'A greeting.',
                       'studentExplanation': 'A friendly greeting.',
@@ -101,6 +118,18 @@ void main() {
     );
 
     expect(result.translatedText, 'hai');
+    expect(result.possibleMeanings, hasLength(2));
+    expect(
+      result.possibleMeanings[1].studentExplanation,
+      'Say this when you are going away.',
+    );
+    final restored = Translation.fromJson(
+      jsonDecode(jsonEncode(result.toJson())) as Map<String, dynamic>,
+    );
+    expect(
+      restored.possibleMeanings[1].exampleSentence,
+      'Selamat tinggal, cikgu!',
+    );
   });
 
   test(
@@ -261,6 +290,9 @@ class _MemoryRepository implements LearningRepository {
 
   @override
   Future<List<VocabularyItem>> getVocabulary() async => [];
+
+  @override
+  Future<void> deleteVocabulary(String id) async {}
 
   @override
   Future<void> toggleFavorite(String id) async {}

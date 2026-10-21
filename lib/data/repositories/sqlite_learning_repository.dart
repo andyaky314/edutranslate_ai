@@ -73,6 +73,11 @@ class SqliteLearningRepository implements LearningRepository {
   }
 
   @override
+  Future<void> deleteVocabulary(String id) async {
+    await database.delete('vocabulary', where: 'id = ?', whereArgs: [id]);
+  }
+
+  @override
   Future<void> toggleFavorite(String id) async {
     await database.rawUpdate(
       'UPDATE vocabulary SET isFavorite = CASE isFavorite WHEN 1 THEN 0 ELSE 1 END WHERE id = ?',

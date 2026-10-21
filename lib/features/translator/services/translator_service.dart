@@ -27,7 +27,7 @@ abstract interface class TranslationProvider {
 }
 
 class GeminiTranslationProvider implements TranslationProvider {
-  static const modelTimeout = Duration(milliseconds: 2500);
+  static const modelTimeout = Duration(seconds: 12);
 
   GeminiTranslationProvider({
     http.Client? client,
@@ -72,7 +72,7 @@ class GeminiTranslationProvider implements TranslationProvider {
 You are EduTranslate, an AI language tutor for Malaysian primary school students.
 Translate the complete input ${source == null ? 'from the language detected in the input' : 'from ${source.name} (${_apiLanguageCode(source.code)})'} to ${target.name} ($targetApiCode).
 The detected input language must be one of English (en), Bahasa Melayu (ms), or Chinese (zh). Return that code in detectedSourceLanguage.
-If the input is a sentence or phrase, translate its full meaning naturally. If it is one word, give up to 5 common distinct meanings in the target language, ordered by how common they are. Put the best context-free meaning in translation and every meaning (including that first one) in alternateMeanings. Include brief sense labels in parentheses when useful. Do not add alternatives for sentences or phrases.
+If the input is a sentence or phrase, provide one natural translation and one meaning entry. If it is a single word, provide up to 5 common distinct meanings, ordered by how common they are. For every meaning, provide its own target translation, a short definition in the source language, a child-friendly explanation in the target language, and one short example sentence in the target language. Put brief sense labels in parentheses in the target translation when useful. The top-level translation, definition, studentExplanation, exampleSentence, and partOfSpeech must repeat the first meaning's values for compatibility.
 Use ${(target.code == 'zh') ? 'Simplified Chinese characters' : target.name} for all target-language text.
 ${yearLevel == null ? 'Use simple language suitable for primary school students.' : 'Explain it at a Year $yearLevel primary school level.'}
 Give a short definition in the source language, a child-friendly explanation in the target language, and one short example sentence in the target language.
@@ -80,8 +80,8 @@ For partOfSpeech, return one simple English label such as noun, verb, adjective,
 For pronunciation, return a brief pronunciation guide for the source text when useful; otherwise use an empty string.
 Do not claim a dictionary or official source. Do not invent etymology. Keep the explanation accurate and concise.
 
-Return a JSON object with exactly these fields (alternateMeanings is an array of strings):
-{"translation":"...","alternateMeanings":["..."],"partOfSpeech":"...","definition":"...","studentExplanation":"...","exampleSentence":"...","pronunciation":"...","detectedSourceLanguage":"en|ms|zh"}
+Return a JSON object with exactly these fields. meanings is an array of objects with their own details:
+{"translation":"...","meanings":[{"translatedText":"...","definition":"...","studentExplanation":"...","exampleSentence":"...","partOfSpeech":"..."}],"partOfSpeech":"...","definition":"...","studentExplanation":"...","exampleSentence":"...","pronunciation":"...","detectedSourceLanguage":"en|ms|zh"}
 
 Input: $text
 ''';
@@ -111,7 +111,7 @@ Input: $text
                 ],
                 'generationConfig': {
                   'responseMimeType': 'application/json',
-                  'maxOutputTokens': 512,
+                  'maxOutputTokens': 1536,
                 },
               }),
             )
@@ -155,17 +155,30 @@ Input: $text
               'The detected text is already in the selected target language. Choose a different To language.',
             );
           }
+          final meanings = _meaningList(result, 'meanings');
+          final firstMeaning = meanings.isEmpty ? null : meanings.first;
           return Translation(
             originalText: text.trim(),
-            translatedText: _requiredString(result, 'translation'),
+            translatedText:
+                firstMeaning?.translatedText ??
+                _requiredString(result, 'translation'),
             sourceLanguage: detectedSource.code,
             targetLanguage: target.code,
-            studentExplanation: _requiredString(result, 'studentExplanation'),
+            studentExplanation:
+                firstMeaning?.studentExplanation ??
+                _requiredString(result, 'studentExplanation'),
             pronunciation: _optionalString(result, 'pronunciation'),
-            partOfSpeech: _optionalString(result, 'partOfSpeech'),
-            definition: _requiredString(result, 'definition'),
-            exampleSentence: _optionalString(result, 'exampleSentence'),
+            partOfSpeech:
+                firstMeaning?.partOfSpeech ??
+                _optionalString(result, 'partOfSpeech'),
+            definition:
+                firstMeaning?.definition ??
+                _requiredString(result, 'definition'),
+            exampleSentence:
+                firstMeaning?.exampleSentence ??
+                _optionalString(result, 'exampleSentence'),
             alternateMeanings: _stringList(result, 'alternateMeanings'),
+            meanings: meanings,
             isAiGenerated: true,
           );
         } on FormatException {
@@ -199,8 +212,30 @@ Input: $text
   List<String> _stringList(Map<String, dynamic> value, String key) {
     final result = value[key];
     if (result is! List) return const [];
-    return result.whereType<String>().map((item) => item.trim())
-        .where((item) => item.isNotEmpty).take(5).toList();
+    return result
+        .whereType<String>()
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .take(5)
+        .toList();
+  }
+
+  List<TranslationMeaning> _meaningList(
+    Map<String, dynamic> value,
+    String key,
+  ) {
+    final result = value[key];
+    if (result is! List) return const [];
+    return result
+        .whereType<Map<String, dynamic>>()
+        .where(
+          (item) =>
+              item['translatedText'] is String &&
+              (item['translatedText'] as String).trim().isNotEmpty,
+        )
+        .map(TranslationMeaning.fromJson)
+        .take(5)
+        .toList();
   }
 
   String? _optionalString(Map<String, dynamic> value, String key) {

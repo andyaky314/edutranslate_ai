@@ -40,6 +40,45 @@ class _VocabularyScreenState extends State<VocabularyScreen> {
     }
   }
 
+  Future<void> _removeWord(VocabularyItem item) async {
+    final shouldRemove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Remove “${item.word}”?'),
+        content: const Text(
+          'This removes the word from your list and flashcards. Its translation will remain in history.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (shouldRemove != true || !mounted) return;
+
+    try {
+      await widget.repository.deleteVocabulary(item.id);
+      if (!mounted) return;
+      _refresh();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('“${item.word}” removed from Words and Cards.')),
+      );
+    } catch (error) {
+      debugPrint('Could not remove vocabulary item: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not remove this word. Please try again.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<VocabularyItem>>(
@@ -79,15 +118,25 @@ class _VocabularyScreenState extends State<VocabularyScreen> {
                   '${AppLanguage.fromCode(item.language).name} · ${item.meaning}\n${item.explanation}',
                 ),
                 isThreeLine: true,
-                trailing: IconButton(
-                  tooltip: item.isFavorite
-                      ? 'Remove from favourites'
-                      : 'Add to favourites',
-                  icon: Icon(
-                    item.isFavorite ? Icons.favorite : Icons.favorite_border,
-                    color: item.isFavorite ? Colors.pink : null,
-                  ),
-                  onPressed: () => _toggleFavorite(item.id),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: item.isFavorite
+                          ? 'Remove from favourites'
+                          : 'Add to favourites',
+                      icon: Icon(
+                        item.isFavorite ? Icons.favorite : Icons.favorite_border,
+                        color: item.isFavorite ? Colors.pink : null,
+                      ),
+                      onPressed: () => _toggleFavorite(item.id),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove from Words and Cards',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _removeWord(item),
+                    ),
+                  ],
                 ),
               ),
             );

@@ -10,6 +10,8 @@ abstract interface class LearningRepository {
 
   Future<List<VocabularyItem>> getVocabulary();
 
+  Future<void> deleteVocabulary(String id);
+
   Future<void> toggleFavorite(String id);
 
   Future<void> recordReview(String id);

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/languages.dart';
 import '../../../data/repositories/learning_repository.dart';
 import '../../translator/models/translation.dart';
+import 'translation_history_detail_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({required this.repository, super.key});
@@ -30,7 +31,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         if (snapshot.hasError) {
           debugPrint('Could not load translation history: ${snapshot.error}');
           return Center(
-            child: const Text('Could not load your history. Please try again later.'),
+            child: const Text(
+              'Could not load your history. Please try again later.',
+            ),
           );
         }
         if (!snapshot.hasData) {
@@ -66,6 +69,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   '${item.translatedText}',
                 ),
                 isThreeLine: true,
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        TranslationHistoryDetailScreen(translation: item),
+                  ),
+                ),
               ),
             );
           },

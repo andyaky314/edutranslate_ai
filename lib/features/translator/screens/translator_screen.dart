@@ -7,6 +7,7 @@ import '../../../data/repositories/learning_repository.dart';
 import '../models/translation.dart';
 import '../services/translator_service.dart';
 import 'live_text_camera_screen.dart';
+import '../widgets/translation_meanings_panel.dart';
 
 class TranslatorScreen extends StatefulWidget {
   const TranslatorScreen({
@@ -418,10 +419,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             saving: _saving,
             saved: _saved,
             onSave: _saveVocabulary,
-            onSpeakTranslation: () =>
-                _speak(result.translatedText, result.targetLanguage),
-            onSpeakExample: () =>
-                _speak(result.exampleSentence ?? '', result.targetLanguage),
+            onSpeakTranslation: (text) => _speak(text, result.targetLanguage),
+            onSpeakExample: (text) => _speak(text, result.targetLanguage),
             onSpeakOriginal: () =>
                 _speak(result.originalText, result.sourceLanguage),
           ),
@@ -499,7 +498,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 }
 
-class _TranslationCard extends StatelessWidget {
+class _TranslationCard extends StatefulWidget {
   const _TranslationCard({
     required this.translation,
     required this.saving,
@@ -514,12 +513,33 @@ class _TranslationCard extends StatelessWidget {
   final bool saving;
   final bool saved;
   final VoidCallback onSave;
-  final VoidCallback onSpeakTranslation;
-  final VoidCallback onSpeakExample;
+  final ValueChanged<String> onSpeakTranslation;
+  final ValueChanged<String> onSpeakExample;
   final VoidCallback onSpeakOriginal;
 
   @override
+  State<_TranslationCard> createState() => _TranslationCardState();
+}
+
+class _TranslationCardState extends State<_TranslationCard> {
+  int _selectedMeaningIndex = 0;
+
+  @override
+  void didUpdateWidget(covariant _TranslationCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.translation, widget.translation)) {
+      _selectedMeaningIndex = 0;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final translation = widget.translation;
+    final selectedMeaning =
+        translation.possibleMeanings[_selectedMeaningIndex.clamp(
+          0,
+          translation.possibleMeanings.length - 1,
+        )];
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -534,49 +554,24 @@ class _TranslationCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
             ],
-            if (translation.alternateMeanings.length <= 1)
-              Text(
-                translation.translatedText,
-                style: Theme.of(context).textTheme.headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
             Align(
               alignment: Alignment.centerLeft,
               child: IconButton(
                 tooltip: 'Read translation aloud',
-                onPressed: onSpeakTranslation,
+                onPressed: () =>
+                    widget.onSpeakTranslation(selectedMeaning.translatedText),
                 icon: const Icon(Icons.volume_up_outlined),
               ),
             ),
-            if (translation.alternateMeanings.length > 1) ...[
-              const SizedBox(height: 8),
-              Text('Possible meanings',
-                  style: Theme.of(context).textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              for (var index = 0;
-                  index < translation.alternateMeanings.length;
-                  index++)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text(
-                    '${index + 1}. ${translation.alternateMeanings[index]}',
-                    style: index == 0
-                        ? Theme.of(context).textTheme.titleLarge
-                            ?.copyWith(fontWeight: FontWeight.bold)
-                        : null,
-                  ),
-                ),
-            ],
             const SizedBox(height: 4),
             Text(
-              '${translation.originalText} · ${translation.partOfSpeech ?? ''}',
+              '${translation.originalText} · ${selectedMeaning.partOfSpeech ?? translation.partOfSpeech ?? ''}',
             ),
             Align(
               alignment: Alignment.centerLeft,
               child: IconButton(
                 tooltip: 'Read original aloud',
-                onPressed: onSpeakOriginal,
+                onPressed: widget.onSpeakOriginal,
                 icon: const Icon(Icons.volume_up_outlined),
               ),
             ),
@@ -585,44 +580,22 @@ class _TranslationCard extends StatelessWidget {
               Text('Pronunciation: ${translation.pronunciation}'),
             ],
             const Divider(height: 28),
-            Text(
-              'What it means',
-              style: Theme.of(context).textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
+            TranslationMeaningsPanel(
+              translation: translation,
+              selectedIndex: _selectedMeaningIndex,
+              onSelected: (index) =>
+                  setState(() => _selectedMeaningIndex = index),
+              onSpeakExample: widget.onSpeakExample,
             ),
-            const SizedBox(height: 4),
-            Text(translation.definition ?? translation.studentExplanation),
-            const SizedBox(height: 12),
-            Text(
-              'In simple words',
-              style: Theme.of(context).textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(translation.studentExplanation),
-            if (translation.exampleSentence?.isNotEmpty == true) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Example',
-                style: Theme.of(context).textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(translation.exampleSentence!),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: onSpeakExample,
-                  icon: const Icon(Icons.volume_up_outlined),
-                  label: const Text('Read example aloud'),
-                ),
-              ),
-            ],
             const SizedBox(height: 16),
             OutlinedButton.icon(
-              onPressed: saving || saved ? null : onSave,
-              icon: Icon(saved ? Icons.check : Icons.bookmark_add_outlined),
-              label: Text(saved ? 'Saved to vocabulary' : 'Save this word'),
+              onPressed: widget.saving || widget.saved ? null : widget.onSave,
+              icon: Icon(
+                widget.saved ? Icons.check : Icons.bookmark_add_outlined,
+              ),
+              label: Text(
+                widget.saved ? 'Saved to vocabulary' : 'Save this word',
+              ),
             ),
           ],
         ),
