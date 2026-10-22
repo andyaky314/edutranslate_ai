@@ -6,7 +6,7 @@ class AppLanguage {
 
   static const english = AppLanguage(code: 'en', name: 'English');
   static const malay = AppLanguage(code: 'ms', name: 'Bahasa Melayu');
-  static const chinese = AppLanguage(code: 'zh', name: '中文');
+  static const chinese = AppLanguage(code: 'zh', name: '\u4e2d\u6587');
 
   static const all = [english, malay, chinese];
 
@@ -25,8 +25,7 @@ class AppLanguage {
   }
 
   @override
-  bool operator ==(Object other) =>
-      other is AppLanguage && other.code == code;
+  bool operator ==(Object other) => other is AppLanguage && other.code == code;
 
   @override
   int get hashCode => code.hashCode;

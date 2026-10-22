@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/app_strings.dart';
+
 enum TextReaderSource { camera, gallery }
 
 class LiveTextCameraScreen extends StatefulWidget {
@@ -139,7 +141,8 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     _controller = null;
     if (controller == null) return;
     try {
-      if (controller.value.isInitialized && controller.value.isStreamingImages) {
+      if (controller.value.isInitialized &&
+          controller.value.isStreamingImages) {
         await controller.stopImageStream();
       }
     } catch (error) {
@@ -154,7 +157,11 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
 
   Future<void> _captureImage() async {
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized || _processingImage) return;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        _processingImage) {
+      return;
+    }
     setState(() {
       _processingImage = true;
       _error = null;
@@ -173,9 +180,7 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       debugPrint('Could not recognize camera image: $error\n$stackTrace');
       if (mounted) {
         setState(() {
-          _error = error is _RecognitionFailure
-              ? error.message
-              : 'Could not read this photo. Try moving closer and capturing again.';
+          _error = error is _RecognitionFailure ? error.message : 'Could not read this photo. Try moving closer and capturing again.';
         });
       }
     } finally {
@@ -282,19 +287,20 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
   Widget build(BuildContext context) {
     final controller = _controller;
     final showingImage = _imagePath != null;
+    final strings = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Read text'),
+        title: Text(strings.text('readText')),
         actions: [
           if (!showingImage && controller?.value.isInitialized == true)
             IconButton(
-              tooltip: 'Capture and read text',
+              tooltip: strings.text('captureAndRead'),
               onPressed: _processingImage ? null : _captureImage,
               icon: const Icon(Icons.camera_alt),
             ),
           if (!showingImage)
             IconButton(
-              tooltip: 'Read an image from storage',
+              tooltip: strings.text('readStoredImage'),
               onPressed: _processingImage || _choosingImage
                   ? null
                   : _chooseImage,
@@ -302,7 +308,7 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
             )
           else
             IconButton(
-              tooltip: 'Use camera',
+              tooltip: strings.text('useCamera'),
               onPressed: _requestCamera,
               icon: const Icon(Icons.camera_alt_outlined),
             ),
@@ -329,12 +335,12 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
                   margin: const EdgeInsets.all(12),
                   child: Padding(
                     padding: const EdgeInsets.all(12),
-                child: Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                    child: Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
               ),
@@ -369,6 +375,7 @@ class _DetectedTextPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return SafeArea(
       top: false,
       child: Container(
@@ -383,14 +390,14 @@ class _DetectedTextPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Detected text — tap a word or line',
+              strings.text('detectedTap'),
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 4),
             Text(
               showingImage
-                  ? 'English, Malay, Simplified Chinese and Traditional Chinese'
-                  : 'Point at clear text and choose a detected result',
+                  ? strings.text('ocrLanguages')
+                  : strings.text('pointSelect'),
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
@@ -401,8 +408,8 @@ class _DetectedTextPanel extends StatelessWidget {
                 child: Center(
                   child: Text(
                     showingImage
-                        ? 'No text found. Try a clearer image or choose another.'
-                        : 'Point the camera at clear, well-lit text.',
+                        ? strings.text('noImageText')
+                        : strings.text('cameraTip'),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -452,13 +459,13 @@ class _CameraStartPanel extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'Read text with your camera',
+            context.strings.text('readWithCamera'),
             style: Theme.of(context).textTheme.titleLarge,
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
           Text(
-            'Allow camera access to identify text live, or choose an image from storage.',
+            context.strings.text('cameraPermissionTip'),
             style: Theme.of(context).textTheme.bodyMedium,
             textAlign: TextAlign.center,
           ),

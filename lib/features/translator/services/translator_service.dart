@@ -67,15 +67,20 @@ class GeminiTranslationProvider implements TranslationProvider {
     }
 
     final targetApiCode = _apiLanguageCode(target.code);
+    final learningInstruction = yearLevel == null
+        ? 'Use clear, standard language and explanations for a general audience.'
+        : yearLevel <= 3
+        ? 'Use language and explanations suitable for lower primary students (Years 1–3).'
+        : 'Use language and explanations suitable for upper primary students (Years 4–6).';
     final prompt =
         '''
-You are EduTranslate, an AI language tutor for Malaysian primary school students.
+You are EduTranslate, an AI language tutor. Adapt your explanation to the selected learning level.
 Translate the complete input ${source == null ? 'from the language detected in the input' : 'from ${source.name} (${_apiLanguageCode(source.code)})'} to ${target.name} ($targetApiCode).
 The detected input language must be one of English (en), Bahasa Melayu (ms), or Chinese (zh). Return that code in detectedSourceLanguage.
-If the input is a sentence or phrase, provide one natural translation and one meaning entry. If it is a single word, provide up to 5 common distinct meanings, ordered by how common they are. For every meaning, provide its own target translation, a short definition in the source language, a child-friendly explanation in the target language, and one short example sentence in the target language. Put brief sense labels in parentheses in the target translation when useful. The top-level translation, definition, studentExplanation, exampleSentence, and partOfSpeech must repeat the first meaning's values for compatibility.
+If the input is a sentence or phrase, provide one natural translation and one meaning entry. If it is a single word, provide up to 5 common distinct meanings, ordered by how common they are. For every meaning, provide its own target translation, a short definition in the source language, an explanation suitable for the selected learning level in the target language, and one short example sentence in the target language. Put brief sense labels in parentheses in the target translation when useful. The top-level translation, definition, studentExplanation, exampleSentence, and partOfSpeech must repeat the first meaning's values for compatibility.
 Use ${(target.code == 'zh') ? 'Simplified Chinese characters' : target.name} for all target-language text.
-${yearLevel == null ? 'Use simple language suitable for primary school students.' : 'Explain it at a Year $yearLevel primary school level.'}
-Give a short definition in the source language, a child-friendly explanation in the target language, and one short example sentence in the target language.
+$learningInstruction
+Give a short definition in the source language, an explanation appropriate to the selected learning level in the target language, and one short example sentence in the target language.
 For partOfSpeech, return one simple English label such as noun, verb, adjective, adverb, phrase, or other.
 For pronunciation, return a brief pronunciation guide for the source text when useful; otherwise use an empty string.
 Do not claim a dictionary or official source. Do not invent etymology. Keep the explanation accurate and concise.

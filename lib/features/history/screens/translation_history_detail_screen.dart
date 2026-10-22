@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/app_strings.dart';
 import '../../../core/languages.dart';
 import '../../translator/models/translation.dart';
 import '../../translator/widgets/translation_meanings_panel.dart';
@@ -21,8 +22,9 @@ class _TranslationHistoryDetailScreenState
   @override
   Widget build(BuildContext context) {
     final translation = widget.translation;
+    final strings = AppStrings.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Word details')),
+      appBar: AppBar(title: Text(strings.text('wordDetails'))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -38,15 +40,17 @@ class _TranslationHistoryDetailScreenState
           ),
           if (translation.isAiGenerated) ...[
             const SizedBox(height: 8),
-            const Chip(
+            Chip(
               avatar: Icon(Icons.auto_awesome, size: 16),
-              label: Text('AI-generated · Check the meaning'),
+              label: Text(strings.text('aiCheck')),
               visualDensity: VisualDensity.compact,
             ),
           ],
           if (translation.pronunciation?.isNotEmpty == true) ...[
             const SizedBox(height: 12),
-            Text('Pronunciation: ${translation.pronunciation}'),
+            Text(
+              '${strings.text('pronunciation')}: ${translation.pronunciation}',
+            ),
           ],
           const SizedBox(height: 12),
           Card(

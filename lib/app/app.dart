@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
+import '../core/app_strings.dart';
 import '../core/languages.dart';
+import '../core/learning_level.dart';
 import '../data/local/app_database.dart';
 import '../data/repositories/learning_repository.dart';
 import '../data/repositories/sqlite_learning_repository.dart';
@@ -20,6 +23,16 @@ class EduTranslateApp extends StatefulWidget {
 
 class _EduTranslateAppState extends State<EduTranslateApp> {
   late final Future<LearningRepository> _repository = _openRepository();
+  String _appLanguageCode = 'system';
+  ThemeMode _themeMode = ThemeMode.system;
+  LearningLevel _learningLevel = LearningLevel.standard;
+  bool _preferencesLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
 
   Future<LearningRepository> _openRepository() async {
     try {
@@ -32,12 +45,67 @@ class _EduTranslateAppState extends State<EduTranslateApp> {
     }
   }
 
+  Future<void> _loadPreferences() async {
+    try {
+      final repository = await _repository;
+      var languageCode = await repository.getSetting('appLanguage');
+      languageCode ??= await repository.getSetting('preferredLanguage') ?? 'system';
+      if (languageCode != 'system') AppLanguage.fromCode(languageCode);
+
+      final savedTheme = await repository.getSetting('themeMode') ?? 'system';
+      final themeMode = switch (savedTheme) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.system,
+      };
+
+      var savedLevel = await repository.getSetting('learningLevel');
+      if (savedLevel == null) {
+        final oldYear = await repository.getSetting('preferredYearLevel');
+        final year = int.tryParse(oldYear ?? '');
+        savedLevel = year != null && year <= 3
+            ? LearningLevel.lowerPrimary.code
+            : year != null && year >= 4 && year <= 6
+            ? LearningLevel.upperPrimary.code
+            : LearningLevel.standard.code;
+      }
+      final learningLevel = LearningLevel.fromCode(savedLevel);
+
+      if (mounted) {
+        setState(() {
+          _appLanguageCode = languageCode!;
+          _themeMode = themeMode;
+          _learningLevel = learningLevel;
+          _preferencesLoaded = true;
+        });
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Could not load settings: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) setState(() => _preferencesLoaded = true);
+    }
+  }
+
+  void _setAppLanguage(String code) => setState(() => _appLanguageCode = code);
+
+  void _setThemeMode(ThemeMode mode) => setState(() => _themeMode = mode);
+
+  void _setLearningLevel(LearningLevel level) =>
+      setState(() => _learningLevel = level);
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'EduTranslate',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.system,
+      locale: _appLanguageCode == 'system' ? null : Locale(_appLanguageCode),
+      supportedLocales: const [Locale('en'), Locale('ms'), Locale('zh')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      themeMode: _themeMode,
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
       home: FutureBuilder<LearningRepository>(
@@ -51,6 +119,11 @@ class _EduTranslateAppState extends State<EduTranslateApp> {
               body: Center(child: CircularProgressIndicator()),
             );
           }
+          if (!_preferencesLoaded) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
           final repository = snapshot.data!;
           final service = TranslatorService(
             provider: GeminiTranslationProvider(),
@@ -59,6 +132,12 @@ class _EduTranslateAppState extends State<EduTranslateApp> {
           return LearningShell(
             repository: repository,
             translatorService: service,
+            appLanguageCode: _appLanguageCode,
+            learningLevel: _learningLevel,
+            themeMode: _themeMode,
+            onAppLanguageChanged: _setAppLanguage,
+            onLearningLevelChanged: _setLearningLevel,
+            onThemeModeChanged: _setThemeMode,
           );
         },
       ),
@@ -150,84 +229,48 @@ class LearningShell extends StatefulWidget {
   const LearningShell({
     required this.repository,
     required this.translatorService,
+    required this.appLanguageCode,
+    required this.learningLevel,
+    required this.themeMode,
+    required this.onAppLanguageChanged,
+    required this.onLearningLevelChanged,
+    required this.onThemeModeChanged,
     super.key,
   });
 
   final LearningRepository repository;
   final TranslatorService translatorService;
+  final String appLanguageCode;
+  final LearningLevel learningLevel;
+  final ThemeMode themeMode;
+  final ValueChanged<String> onAppLanguageChanged;
+  final ValueChanged<LearningLevel> onLearningLevelChanged;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
 
   @override
   State<LearningShell> createState() => _LearningShellState();
 }
 
 class _LearningShellState extends State<LearningShell> {
-  static const _titles = [
-    'Translate',
-    'My words',
-    'Flashcards',
-    'History',
-    'Settings',
-  ];
-
   int _selectedIndex = 0;
-  String _preferredLanguageCode = 'en';
-  int? _preferredYearLevel;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPreferredLanguage();
-  }
-
-  Future<void> _loadPreferredLanguage() async {
-    try {
-      final saved = await widget.repository.getSetting('preferredLanguage');
-      if (saved != null) {
-        AppLanguage.fromCode(saved);
-        if (mounted) setState(() => _preferredLanguageCode = saved);
-      }
-      final savedYear = await widget.repository.getSetting(
-        'preferredYearLevel',
-      );
-      final parsedYear = savedYear == null || savedYear == 'all'
-          ? null
-          : int.tryParse(savedYear);
-      if (savedYear != null &&
-          savedYear != 'all' &&
-          (parsedYear == null || parsedYear < 1 || parsedYear > 6)) {
-        throw FormatException('Unsupported preferred year level: $savedYear');
-      }
-      if (mounted) setState(() => _preferredYearLevel = parsedYear);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not load learning preferences: $error'),
-          ),
-        );
-      }
-    }
-  }
-
-  void _setPreferredLanguage(AppLanguage language) {
-    setState(() => _preferredLanguageCode = language.code);
-  }
-
-  void _setPreferredYearLevel(int? yearLevel) {
-    setState(() => _preferredYearLevel = yearLevel);
-  }
 
   @override
   Widget build(BuildContext context) {
-    final preferredLanguage = AppLanguage.fromCode(_preferredLanguageCode);
+    final localeLanguage = Localizations.localeOf(context).languageCode;
+    final preferredLanguage = AppLanguage.fromCode(
+      AppLanguage.all.any((language) => language.code == localeLanguage)
+          ? localeLanguage
+          : AppLanguage.english.code,
+    );
+    final strings = AppStrings.of(context);
     final pages = [
       TranslatorScreen(
         service: widget.translatorService,
         repository: widget.repository,
         preferredLanguage: preferredLanguage,
-        preferredYearLevel: _preferredYearLevel,
+        learningLevel: widget.learningLevel,
         key: ValueKey(
-          'translate-${preferredLanguage.code}-${_preferredYearLevel ?? 'all'}',
+          'translate-${preferredLanguage.code}-${widget.learningLevel.code}',
         ),
       ),
       VocabularyScreen(repository: widget.repository),
@@ -235,17 +278,25 @@ class _LearningShellState extends State<LearningShell> {
       HistoryScreen(repository: widget.repository),
       SettingsScreen(
         repository: widget.repository,
-        preferredLanguage: preferredLanguage,
-        preferredYearLevel: _preferredYearLevel,
-        onLanguageChanged: _setPreferredLanguage,
-        onYearLevelChanged: _setPreferredYearLevel,
+        appLanguageCode: widget.appLanguageCode,
+        learningLevel: widget.learningLevel,
+        themeMode: widget.themeMode,
+        onAppLanguageChanged: widget.onAppLanguageChanged,
+        onLearningLevelChanged: widget.onLearningLevelChanged,
+        onThemeModeChanged: widget.onThemeModeChanged,
       ),
     ];
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _titles[_selectedIndex],
+          [
+            strings.text('translate'),
+            strings.text('words'),
+            strings.text('cards'),
+            strings.text('history'),
+            strings.text('settings'),
+          ][_selectedIndex],
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
@@ -255,27 +306,30 @@ class _LearningShellState extends State<LearningShell> {
         onDestinationSelected: (index) {
           setState(() => _selectedIndex = index);
         },
-        destinations: const [
+        destinations: [
           NavigationDestination(
             icon: Icon(Icons.translate_outlined),
             selectedIcon: Icon(Icons.translate),
-            label: 'Translate',
+            label: strings.text('translate'),
           ),
           NavigationDestination(
             icon: Icon(Icons.book_outlined),
             selectedIcon: Icon(Icons.book),
-            label: 'Words',
+            label: strings.text('words'),
           ),
           NavigationDestination(
             icon: Icon(Icons.style_outlined),
             selectedIcon: Icon(Icons.style),
-            label: 'Cards',
+            label: strings.text('cards'),
           ),
-          NavigationDestination(icon: Icon(Icons.history), label: 'History'),
+          NavigationDestination(
+            icon: const Icon(Icons.history),
+            label: strings.text('history'),
+          ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),
             selectedIcon: Icon(Icons.settings),
-            label: 'Settings',
+            label: strings.text('settings'),
           ),
         ],
       ),

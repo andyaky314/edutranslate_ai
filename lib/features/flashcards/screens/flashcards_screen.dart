@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/app_strings.dart';
 import '../../../data/repositories/learning_repository.dart';
 import '../../vocabulary/models/vocabulary_item.dart';
 
@@ -37,7 +38,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       debugPrint('Could not record vocabulary review: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not record this review. Please try again.')),
+          SnackBar(content: Text(context.strings.text('reviewError'))),
         );
       }
     }
@@ -45,25 +46,24 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return FutureBuilder<List<VocabularyItem>>(
       future: _items,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           debugPrint('Could not load flashcards: ${snapshot.error}');
-          return Center(
-            child: const Text('Could not load your flashcards. Please try again later.'),
-          );
+          return Center(child: Text(strings.text('flashcardsError')));
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         final items = snapshot.data!;
         if (items.isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
-              padding: EdgeInsets.all(28),
+              padding: const EdgeInsets.all(28),
               child: Text(
-                'Save a few words first, then come back to practise with flashcards.',
+                strings.text('saveWordsFirst'),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -76,7 +76,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('Card ${_index + 1} of ${items.length}'),
+              Text(strings.cardCount(_index + 1, items.length)),
               const SizedBox(height: 16),
               Card(
                 child: SizedBox(
@@ -88,9 +88,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                         Text(
                           _showAnswer ? item.meaning : item.word,
                           textAlign: TextAlign.center,
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineMedium
+                          style: Theme.of(context).textTheme.headlineMedium
                               ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         if (_showAnswer) ...[
@@ -106,13 +104,13 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
               if (!_showAnswer)
                 FilledButton(
                   onPressed: () => setState(() => _showAnswer = true),
-                  child: const Text('Show answer'),
+                  child: Text(strings.text('showAnswer')),
                 )
               else
                 FilledButton.icon(
                   onPressed: () => _next(items),
                   icon: const Icon(Icons.check),
-                  label: const Text('Got it — next card'),
+                  label: Text(strings.text('gotNext')),
                 ),
             ],
           ),

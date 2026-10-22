@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/app_strings.dart';
 import '../../../core/languages.dart';
 import '../../../data/repositories/learning_repository.dart';
 import '../models/vocabulary_item.dart';
@@ -34,28 +35,27 @@ class _VocabularyScreenState extends State<VocabularyScreen> {
       debugPrint('Could not update vocabulary favourite: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not update favourite. Please try again.')),
+          SnackBar(content: Text(context.strings.text('favoriteError'))),
         );
       }
     }
   }
 
   Future<void> _removeWord(VocabularyItem item) async {
+    final strings = AppStrings.of(context);
     final shouldRemove = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Remove “${item.word}”?'),
-        content: const Text(
-          'This removes the word from your list and flashcards. Its translation will remain in history.',
-        ),
+        title: Text(strings.removeWordTitle(item.word)),
+        content: Text(strings.text('removeWordExplanation')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(strings.text('cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Remove'),
+            child: Text(strings.text('remove')),
           ),
         ],
       ),
@@ -66,14 +66,16 @@ class _VocabularyScreenState extends State<VocabularyScreen> {
       await widget.repository.deleteVocabulary(item.id);
       if (!mounted) return;
       _refresh();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('“${item.word}” removed from Words and Cards.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(strings.wordRemoved(item.word))));
     } catch (error) {
       debugPrint('Could not remove vocabulary item: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not remove this word. Please try again.')),
+          const SnackBar(
+            content: Text('Could not remove this word. Please try again.'),
+          ),
         );
       }
     }
@@ -81,6 +83,7 @@ class _VocabularyScreenState extends State<VocabularyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return FutureBuilder<List<VocabularyItem>>(
       future: _items,
       builder: (context, snapshot) {
@@ -88,7 +91,7 @@ class _VocabularyScreenState extends State<VocabularyScreen> {
           debugPrint('Could not load vocabulary: ${snapshot.error}');
           return _StateMessage(
             icon: Icons.error_outline,
-            message: 'Could not load your words. Please try again later.',
+            message: strings.text('wordsError'),
           );
         }
         if (!snapshot.hasData) {
@@ -96,10 +99,9 @@ class _VocabularyScreenState extends State<VocabularyScreen> {
         }
         final items = snapshot.data!;
         if (items.isEmpty) {
-          return const _StateMessage(
+          return _StateMessage(
             icon: Icons.menu_book_outlined,
-            message:
-                'Your word list is ready. Translate a word and save it here for offline practice.',
+            message: strings.text('yourWordsEmpty'),
           );
         }
         return ListView.separated(
@@ -123,16 +125,18 @@ class _VocabularyScreenState extends State<VocabularyScreen> {
                   children: [
                     IconButton(
                       tooltip: item.isFavorite
-                          ? 'Remove from favourites'
-                          : 'Add to favourites',
+                          ? strings.text('removeFavorite')
+                          : strings.text('addFavorite'),
                       icon: Icon(
-                        item.isFavorite ? Icons.favorite : Icons.favorite_border,
+                        item.isFavorite
+                            ? Icons.favorite
+                            : Icons.favorite_border,
                         color: item.isFavorite ? Colors.pink : null,
                       ),
                       onPressed: () => _toggleFavorite(item.id),
                     ),
                     IconButton(
-                      tooltip: 'Remove from Words and Cards',
+                      tooltip: strings.text('removeFromWordsCards'),
                       icon: const Icon(Icons.delete_outline),
                       onPressed: () => _removeWord(item),
                     ),

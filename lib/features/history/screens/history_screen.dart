@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/app_strings.dart';
 import '../../../core/languages.dart';
 import '../../../data/repositories/learning_repository.dart';
 import '../../translator/models/translation.dart';
@@ -37,8 +38,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       debugPrint('Could not load saved words from history: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not check which history words are saved.'),
+          SnackBar(
+            content: Text(context.strings.text('savedHistoryCheckError')),
           ),
         );
       }
@@ -60,7 +61,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '“${translation.originalText}” saved to Words and Cards.',
+            AppStrings.of(context).wordSaved(translation.originalText),
           ),
         ),
       );
@@ -68,9 +69,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       debugPrint('Could not save vocabulary from history: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not save this word. Please try again.'),
-          ),
+          SnackBar(content: Text(context.strings.text('saveWordError'))),
         );
       }
     } finally {
@@ -80,27 +79,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return FutureBuilder<List<Translation>>(
       future: _history,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           debugPrint('Could not load translation history: ${snapshot.error}');
-          return Center(
-            child: const Text(
-              'Could not load your history. Please try again later.',
-            ),
-          );
+          return Center(child: Text(strings.text('historyError')));
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         final history = snapshot.data!;
         if (history.isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
-              padding: EdgeInsets.all(28),
+              padding: const EdgeInsets.all(28),
               child: Text(
-                'Your translations will appear here and stay available offline.',
+                strings.text('yourHistoryEmpty'),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -129,8 +125,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   children: [
                     IconButton(
                       tooltip: _savedWordIds.contains(_vocabularyId(item))
-                          ? 'Saved word'
-                          : 'Save word',
+                          ? strings.text('savedWord')
+                          : strings.text('saveWord'),
                       icon: Icon(
                         _savedWordIds.contains(_vocabularyId(item))
                             ? Icons.bookmark_added_outlined

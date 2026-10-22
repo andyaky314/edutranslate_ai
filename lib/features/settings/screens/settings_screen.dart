@@ -1,50 +1,40 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/languages.dart';
+import '../../../core/app_strings.dart';
+import '../../../core/learning_level.dart';
 import '../../../data/repositories/learning_repository.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
     required this.repository,
-    required this.preferredLanguage,
-    required this.preferredYearLevel,
-    required this.onLanguageChanged,
-    required this.onYearLevelChanged,
+    required this.appLanguageCode,
+    required this.learningLevel,
+    required this.themeMode,
+    required this.onAppLanguageChanged,
+    required this.onLearningLevelChanged,
+    required this.onThemeModeChanged,
     super.key,
   });
 
   final LearningRepository repository;
-  final AppLanguage preferredLanguage;
-  final int? preferredYearLevel;
-  final ValueChanged<AppLanguage> onLanguageChanged;
-  final ValueChanged<int?> onYearLevelChanged;
+  final String appLanguageCode;
+  final LearningLevel learningLevel;
+  final ThemeMode themeMode;
+  final ValueChanged<String> onAppLanguageChanged;
+  final ValueChanged<LearningLevel> onLearningLevelChanged;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
 
-  Future<void> _saveLanguage(BuildContext context, AppLanguage language) async {
+  Future<void> _save(
+    BuildContext context,
+    String key,
+    String value,
+    VoidCallback onSaved,
+  ) async {
     try {
-      await repository.setSetting('preferredLanguage', language.code);
-      onLanguageChanged(language);
+      await repository.setSetting(key, value);
+      onSaved();
     } catch (error) {
-      debugPrint('Could not save language preference: $error');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not save this setting. Please try again.'),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _saveYearLevel(BuildContext context, String? value) async {
-    final yearLevel = value == null || value == 'all' ? null : int.parse(value);
-    try {
-      await repository.setSetting(
-        'preferredYearLevel',
-        yearLevel?.toString() ?? 'all',
-      );
-      onYearLevelChanged(yearLevel);
-    } catch (error) {
-      debugPrint('Could not save year level: $error');
+      debugPrint('Could not save app setting $key: $error');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -57,72 +47,117 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text(
-          'Learning preferences',
-          style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: DropdownButtonFormField<AppLanguage>(
-              initialValue: preferredLanguage,
-              decoration: const InputDecoration(
-                labelText: 'Preferred learning language',
-                border: OutlineInputBorder(),
-              ),
-              items: AppLanguage.all
-                  .map(
-                    (language) => DropdownMenuItem(
-                      value: language,
-                      child: Text(language.name),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (language) {
-                if (language != null) _saveLanguage(context, language);
-              },
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: DropdownButtonFormField<String>(
-              initialValue: preferredYearLevel?.toString() ?? 'all',
-              decoration: const InputDecoration(
-                labelText: 'SJKC year level',
-                helperText: 'Optional. All years is selected by default.',
-                border: OutlineInputBorder(),
+              initialValue: appLanguageCode,
+              decoration: InputDecoration(
+                labelText: strings.text('appLanguage'),
+                border: const OutlineInputBorder(),
               ),
               items: [
-                const DropdownMenuItem(value: 'all', child: Text('All years')),
-                for (var year = 1; year <= 6; year++)
-                  DropdownMenuItem(value: '$year', child: Text('Year $year')),
+                DropdownMenuItem(
+                  value: 'system',
+                  child: Text(strings.text('followPhone')),
+                ),
+                const DropdownMenuItem(
+                  value: 'ms',
+                  child: Text('Bahasa Melayu'),
+                ),
+                const DropdownMenuItem(value: 'en', child: Text('English')),
+                const DropdownMenuItem(value: 'zh', child: Text('中文')),
               ],
-              onChanged: (value) {
-                if (value != null) _saveYearLevel(context, value);
+              onChanged: (code) {
+                if (code == null) return;
+                _save(
+                  context,
+                  'appLanguage',
+                  code,
+                  () => onAppLanguageChanged(code),
+                );
               },
             ),
           ),
         ),
-        const SizedBox(height: 24),
-        Text(
-          'AI translation',
-          style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(fontWeight: FontWeight.bold),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: DropdownButtonFormField<LearningLevel>(
+              initialValue: learningLevel,
+              decoration: InputDecoration(
+                labelText: strings.text('learningLevel'),
+                border: const OutlineInputBorder(),
+              ),
+              items: [
+                DropdownMenuItem(
+                  value: LearningLevel.lowerPrimary,
+                  child: Text(strings.text('lowerPrimary')),
+                ),
+                DropdownMenuItem(
+                  value: LearningLevel.upperPrimary,
+                  child: Text(strings.text('upperPrimary')),
+                ),
+                DropdownMenuItem(
+                  value: LearningLevel.standard,
+                  child: Text(strings.text('standard')),
+                ),
+              ],
+              onChanged: (level) {
+                if (level == null) return;
+                _save(
+                  context,
+                  'learningLevel',
+                  level.code,
+                  () => onLearningLevelChanged(level),
+                );
+              },
+            ),
+          ),
         ),
         const SizedBox(height: 12),
-        const Card(
+        Card(
           child: Padding(
-            padding: EdgeInsets.all(16),
-            child: Text(
-              'Translations and learning explanations are generated by Gemini through Google AI Studio. Text you submit is sent to Google for processing. Do not enter names, contact details, or private student information. AI translations can be wrong; check important meanings with a teacher. Your saved words, history, favourites, and review counts stay on this device.',
+            padding: const EdgeInsets.all(16),
+            child: DropdownButtonFormField<ThemeMode>(
+              initialValue: themeMode,
+              decoration: InputDecoration(
+                labelText: strings.text('appearance'),
+                border: const OutlineInputBorder(),
+              ),
+              items: [
+                DropdownMenuItem(
+                  value: ThemeMode.system,
+                  child: Text(strings.text('systemTheme')),
+                ),
+                DropdownMenuItem(
+                  value: ThemeMode.light,
+                  child: Text(strings.text('light')),
+                ),
+                DropdownMenuItem(
+                  value: ThemeMode.dark,
+                  child: Text(strings.text('dark')),
+                ),
+              ],
+              onChanged: (mode) {
+                if (mode == null) return;
+                final value = switch (mode) {
+                  ThemeMode.light => 'light',
+                  ThemeMode.dark => 'dark',
+                  ThemeMode.system => 'system',
+                };
+                _save(
+                  context,
+                  'themeMode',
+                  value,
+                  () => onThemeModeChanged(mode),
+                );
+              },
             ),
           ),
         ),

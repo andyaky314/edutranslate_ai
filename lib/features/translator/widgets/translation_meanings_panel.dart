@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/app_strings.dart';
 import '../models/translation.dart';
 
 class TranslationMeaningsPanel extends StatelessWidget {
@@ -18,6 +19,7 @@ class TranslationMeaningsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final meanings = translation.possibleMeanings;
     final activeIndex = selectedIndex.clamp(0, meanings.length - 1);
     final meaning = meanings[activeIndex];
@@ -31,7 +33,7 @@ class TranslationMeaningsPanel extends StatelessWidget {
       children: [
         if (meanings.length > 1) ...[
           Text(
-            'Possible meanings',
+            strings.text('possibleMeanings'),
             style: Theme.of(context).textTheme.titleMedium
                 ?.copyWith(fontWeight: FontWeight.bold),
           ),
@@ -69,24 +71,24 @@ class TranslationMeaningsPanel extends StatelessWidget {
         ],
         if (hasDetails) ...[
           Text(
-            'What it means',
+            strings.text('whatItMeans'),
             style: Theme.of(context).textTheme.titleMedium
                 ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
-          Text(meaning.definition ?? 'No definition is available.'),
+          Text(meaning.definition ?? strings.text('noDefinition')),
           const SizedBox(height: 12),
           Text(
-            'In simple words',
+            strings.text('simpleWords'),
             style: Theme.of(context).textTheme.titleMedium
                 ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
-          Text(meaning.studentExplanation ?? 'No explanation is available.'),
+          Text(meaning.studentExplanation ?? strings.text('noExplanation')),
           if (meaning.exampleSentence?.isNotEmpty == true) ...[
             const SizedBox(height: 12),
             Text(
-              'Example',
+              strings.text('example'),
               style: Theme.of(context).textTheme.titleMedium
                   ?.copyWith(fontWeight: FontWeight.bold),
             ),
@@ -98,14 +100,12 @@ class TranslationMeaningsPanel extends StatelessWidget {
                 child: TextButton.icon(
                   onPressed: () => onSpeakExample!(meaning.exampleSentence!),
                   icon: const Icon(Icons.volume_up_outlined),
-                  label: const Text('Read example aloud'),
+                  label: Text(strings.text('readExample')),
                 ),
               ),
           ],
         ] else
-          const Text(
-            'This saved meaning has no explanation or example. Translate it again to get details for this meaning.',
-          ),
+          Text(strings.text('translationDetailsMissing')),
       ],
     );
   }
