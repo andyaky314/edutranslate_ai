@@ -82,6 +82,10 @@ android {
             } else {
                 null
             }
+            // ML Kit's bundled recognizers fail at runtime in the minified
+            // release build on some devices; keep their runtime intact.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
