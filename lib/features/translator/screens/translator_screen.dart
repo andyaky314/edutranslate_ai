@@ -188,14 +188,6 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     });
   }
 
-  String? get _speechLocale => _autoDetectSource
-      ? null
-      : switch (_sourceLanguage.code) {
-          'zh' => 'zh_CN',
-          'ms' => 'ms_MY',
-          _ => 'en_US',
-        };
-
   String? _availableSpeechLocale(
     List<LocaleName> locales,
     String requestedLocale,
@@ -239,6 +231,20 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       if (mounted) setState(() => _listening = false);
       return;
     }
+    final voiceLanguage = await showModalBottomSheet<AppLanguage>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: AppLanguage.all.map((language) => ListTile(
+            leading: const Icon(Icons.mic_none),
+            title: Text(language.name),
+            onTap: () => Navigator.pop(context, language),
+          )).toList(),
+        ),
+      ),
+    );
+    if (voiceLanguage == null || !mounted) return;
     try {
       final available = await _speech.initialize(
         onStatus: (status) {
@@ -266,18 +272,18 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         return;
       }
       final locales = await _speech.locales();
-      final requestedLocale = _speechLocale;
-      final localeId = requestedLocale == null
-          ? null
-          : _availableSpeechLocale(locales, requestedLocale);
-      if (requestedLocale != null && localeId == null) {
+      final requestedLocale = switch (voiceLanguage.code) {
+        'zh' => 'zh_CN',
+        'ms' => 'ms_MY',
+        _ => 'en_US',
+      };
+      final localeId = _availableSpeechLocale(locales, requestedLocale);
+      if (localeId == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                _sourceLanguage.code == 'zh'
-                    ? 'Mandarin speech recognition is not available. Install or enable a Simplified Chinese speech pack in your phone settings.'
-                    : 'Speech recognition for ${_sourceLanguage.name} is not available in your phone\'s speech service.',
+                'Speech recognition for ${voiceLanguage.name} is not available in the device speech service. Install or enable its language pack, then try again.',
               ),
             ),
           );
@@ -288,6 +294,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         listenOptions: SpeechListenOptions(
           localeId: localeId,
           listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 4),
+          listenMode: ListenMode.dictation,
         ),
         onResult: (result) {
           if (mounted) {
@@ -422,9 +430,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         Padding(
           padding: const EdgeInsets.only(left: 4, top: 4),
           child: Text(
-            _autoDetectSource
-                ? 'Auto detect asks Android 14+ to switch between English, Malay, and Mandarin. This needs a compatible speech service and its language models.'
-                : 'Voice input uses ${_sourceLanguage.name}. For Chinese, the app requests Simplified Mandarin.',
+            'Choose English, Bahasa Melayu, or Mandarin after tapping. Recognition uses the matching language installed in your device speech service.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),

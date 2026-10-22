@@ -67,6 +67,15 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Keep flutter run builds installable over locally built APKs.
+            // Both variants use the project's configured signing key.
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+        }
         release {
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")

@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -29,13 +28,10 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
   List<String> _candidates = const [];
   String? _imagePath;
   String? _error;
-  bool _processingFrame = false;
   bool _processingImage = false;
   bool _initializingCamera = false;
   bool _choosingImage = false;
   bool _cameraRequested = false;
-  DateTime _lastProcessedFrame = DateTime.fromMillisecondsSinceEpoch(0);
-  Completer<void>? _frameRecognitionDone;
 
   @override
   void initState() {
@@ -108,14 +104,10 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
         camera,
         ResolutionPreset.high,
         enableAudio: false,
-        imageFormatGroup: Platform.isAndroid
-            ? ImageFormatGroup.nv21
-            : ImageFormatGroup.bgra8888,
       );
       _controller = controller;
       await controller.initialize();
       if (!mounted || _controller != controller) return;
-      await controller.startImageStream(_processFrame);
       if (mounted) setState(() => _error = null);
     } on CameraException catch (error) {
       if (_controller == controller) await _releaseCamera();
@@ -147,8 +139,7 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     _controller = null;
     if (controller == null) return;
     try {
-      if (controller.value.isInitialized &&
-          controller.value.isStreamingImages) {
+      if (controller.value.isInitialized && controller.value.isStreamingImages) {
         await controller.stopImageStream();
       }
     } catch (error) {
@@ -161,100 +152,39 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     }
   }
 
-  Future<void> _processFrame(CameraImage image) async {
+  Future<void> _captureImage() async {
     final controller = _controller;
-    final now = DateTime.now();
-    if (_processingFrame ||
-        _processingImage ||
-        _choosingImage ||
-        controller == null ||
-        _imagePath != null ||
-        now.difference(_lastProcessedFrame).inMilliseconds < 350) {
-      return;
-    }
-
-    _processingFrame = true;
-    final frameDone = Completer<void>();
-    _frameRecognitionDone = frameDone;
-    _lastProcessedFrame = now;
+    if (controller == null || !controller.value.isInitialized || _processingImage) return;
+    setState(() {
+      _processingImage = true;
+      _error = null;
+    });
     try {
-      final input = _inputImageFromCameraImage(image, controller);
-      if (input == null) {
-        const message =
-            'This camera does not provide a supported image format for text recognition.';
-        if (mounted && _error != message) setState(() => _error = message);
-        return;
-      }
-      final candidates = await _recognize(input);
-      if (mounted && _imagePath == null && !_processingImage) {
+      final image = await controller.takePicture();
+      final candidates = await _recognize(InputImage.fromFilePath(image.path));
+      if (mounted) {
         setState(() {
+          _imagePath = image.path;
           _candidates = candidates;
           _error = null;
         });
       }
     } catch (error, stackTrace) {
-      debugPrint('Live text recognition failed: $error\n$stackTrace');
-      if (mounted && _imagePath == null && !_processingImage) {
+      debugPrint('Could not recognize camera image: $error\n$stackTrace');
+      if (mounted) {
         setState(() {
-          _candidates = const [];
           _error = error is _RecognitionFailure
               ? error.message
-              : 'Could not read text from the camera. Please try again.';
+              : 'Could not read this photo. Try moving closer and capturing again.';
         });
       }
     } finally {
-      _processingFrame = false;
-      frameDone.complete();
+      if (mounted) setState(() => _processingImage = false);
     }
-  }
-
-  InputImage? _inputImageFromCameraImage(
-    CameraImage image,
-    CameraController controller,
-  ) {
-    const orientations = <DeviceOrientation, int>{
-      DeviceOrientation.portraitUp: 0,
-      DeviceOrientation.landscapeLeft: 90,
-      DeviceOrientation.portraitDown: 180,
-      DeviceOrientation.landscapeRight: 270,
-    };
-    final sensorOrientation = controller.description.sensorOrientation;
-    InputImageRotation? rotation;
-    if (Platform.isIOS) {
-      rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
-    } else if (Platform.isAndroid) {
-      var compensation = orientations[controller.value.deviceOrientation];
-      if (compensation == null) return null;
-      compensation =
-          controller.description.lensDirection == CameraLensDirection.front
-          ? (sensorOrientation + compensation) % 360
-          : (sensorOrientation - compensation + 360) % 360;
-      rotation = InputImageRotationValue.fromRawValue(compensation);
-    }
-
-    final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    if (rotation == null ||
-        format == null ||
-        (Platform.isAndroid && format != InputImageFormat.nv21) ||
-        (Platform.isIOS && format != InputImageFormat.bgra8888) ||
-        image.planes.length != 1) {
-      return null;
-    }
-    final plane = image.planes.first;
-    return InputImage.fromBytes(
-      bytes: plane.bytes,
-      metadata: InputImageMetadata(
-        size: Size(image.width.toDouble(), image.height.toDouble()),
-        rotation: rotation,
-        format: format,
-        bytesPerRow: plane.bytesPerRow,
-      ),
-    );
   }
 
   Future<List<String>> _recognize(InputImage input) async {
     final candidates = <String, String>{};
-    final failedScripts = <String, String>{};
     var successfulRecognizers = 0;
     for (final recognizer in _recognizers) {
       try {
@@ -273,14 +203,12 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
           'Text recognition failed for ${recognizer.script.name}: '
           '$error\n$stackTrace',
         );
-        failedScripts[recognizer.script.name] = error.toString();
       }
     }
     if (successfulRecognizers == 0) {
-      final details = failedScripts.entries
-          .map((failure) => '${failure.key}: ${failure.value}')
-          .join('; ');
-      throw _RecognitionFailure('Text recognition failed. $details');
+      throw const _RecognitionFailure(
+        'Text recognition could not start. Please update or reinstall the app, then try again.',
+      );
     }
     return candidates.values.toList(growable: false);
   }
@@ -299,7 +227,6 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
     if (mounted) setState(() => _error = null);
     try {
       await _releaseCamera();
-      await _frameRecognitionDone?.future;
       final image = await _imagePicker.pickImage(source: ImageSource.gallery);
       if (image == null) {
         if (mounted && widget.initialSource == TextReaderSource.gallery) {
@@ -340,18 +267,12 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    final pendingFrame = _frameRecognitionDone?.future;
-    unawaited(_shutdown(pendingFrame));
+    unawaited(_shutdown());
     super.dispose();
   }
 
-  Future<void> _shutdown(Future<void>? pendingFrame) async {
+  Future<void> _shutdown() async {
     await _releaseCamera();
-    try {
-      await pendingFrame;
-    } catch (error) {
-      debugPrint('Live OCR frame did not finish cleanly: $error');
-    }
     for (final recognizer in _recognizers) {
       await recognizer.close();
     }
@@ -365,6 +286,12 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
       appBar: AppBar(
         title: const Text('Read text'),
         actions: [
+          if (!showingImage && controller?.value.isInitialized == true)
+            IconButton(
+              tooltip: 'Capture and read text',
+              onPressed: _processingImage ? null : _captureImage,
+              icon: const Icon(Icons.camera_alt),
+            ),
           if (!showingImage)
             IconButton(
               tooltip: 'Read an image from storage',
@@ -402,7 +329,12 @@ class _LiveTextCameraScreenState extends State<LiveTextCameraScreen>
                   margin: const EdgeInsets.all(12),
                   child: Padding(
                     padding: const EdgeInsets.all(12),
-                    child: Text(_error!, textAlign: TextAlign.center),
+                child: Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                ),
                   ),
                 ),
               ),
